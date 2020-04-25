@@ -77,15 +77,15 @@ struct Covid19Model {
         
         print("...Loading data from csv")
         
-        let parsedCSV: [Date : Int] = Dictionary(uniqueKeysWithValues: content
+        let parsedCSV: [Date : Double] = Dictionary(uniqueKeysWithValues: content
           .components(separatedBy: "\n")
             .compactMap({ line in
                 let components = line.components(separatedBy: ",")
                 if let date = dateFormatter.date(from: components[0]),
                     let deaths = Int(components[1].trimmingCharacters(in: .whitespacesAndNewlines)) {
                     let unreportedDeaths = Double(deaths) * (Double(unreportedDeathsPercent)/100.0)
-                    let totalDeaths = deaths + Int(unreportedDeaths)
                     
+                    let totalDeaths = Double(deaths) + unreportedDeaths
                     return (date, totalDeaths)
                 }
                 return nil
@@ -94,7 +94,7 @@ struct Covid19Model {
         print("...Calculating the estimated number of people infected based on observed deaths, incubation period, and mortality rate")
         let estimatedInfected: [Date : Int] = Dictionary(uniqueKeysWithValues: parsedCSV.map({
             let date = $0.key.advanced(by: daysRatio * TimeInterval(-incubationToDeathDays))
-            let estimatedInfected = Double($0.value) * (100.0 / Double(mortalityRatePercent))
+            let estimatedInfected = $0.value * (100.0 / Double(mortalityRatePercent))
             return (date, Int(estimatedInfected))
         }))
         
@@ -185,22 +185,23 @@ struct Covid19Model {
         print("...Projecting future infections based on most recent R0")
         var lastDate = lastDateInfectionData.key
         repeat {
-            let tomorrow = lastDate.advanced(by: daysRatio)
-            let todayInfectionData = infectionData[lastDate]!
-            let previousDate = tomorrow.advanced(by: daysRatio * TimeInterval(serialIntervalDays * -1))
-            let previousInfectionData = infectionData[previousDate]!
-            let tomorrowNewInfected = Int(Double(previousInfectionData.anyNewInfected) * lastR0.value.estimatedR0!)
-            let tomorrowInfected = tomorrowNewInfected + todayInfectionData.anyCumulativeInfected
+            let today = lastDate.advanced(by: daysRatio)
+            let yesterdayInfectionData = infectionData[lastDate]!
+            let serialIntervalDate = today.advanced(by: daysRatio * TimeInterval(serialIntervalDays * -1))
+            let serialIntervalDateInfectionData = infectionData[serialIntervalDate]!
+            let r0 = serialIntervalDateInfectionData.estimatedR0 ?? lastR0.value.anyR0
+            let todayNewInfected = Int(Double(serialIntervalDateInfectionData.anyNewInfected) * r0)
+            let todayCumulativeInfected = todayNewInfected + yesterdayInfectionData.anyCumulativeInfected
             
-            infectionData[tomorrow] = InfectionData(
+            infectionData[today] = InfectionData(
                 estimatedCumulativeInfected: nil,
                 estimatedNewInfected: nil,
                 estimatedR0: nil,
-                projectedCumulativeInfected: tomorrowInfected,
-                projectedNewInfected: tomorrowNewInfected,
+                projectedCumulativeInfected: todayCumulativeInfected,
+                projectedNewInfected: todayNewInfected,
                 projectedR0: lastR0.value.estimatedR0!
             )
-            lastDate = tomorrow
+            lastDate = today
         }
         while infectionData[lastDate]?.projectedNewInfected ?? 0 > targetNewInfections
         
@@ -228,8 +229,32 @@ struct Covid19Model {
         
         print("...end of calculations")
         self.data = infectionData
-    }
         
+        let fileName = "output"
+        let dir = try? FileManager.default.url(for: .documentDirectory,
+              in: .userDomainMask, appropriateFor: nil, create: true)
+        
+        // If the directory was found, we write a file to it and read it back
+        if let fileURL = dir?.appendingPathComponent(fileName).appendingPathExtension("csv") {
+
+            // Write to the file named Test
+            
+            let outString = infectionData.reduce("Date, Estimated Cumulative Infected, Estimated New Infected, Estimated R0, Projected Cumulative Infected, Projected New Infected\n") { text, item in
+                let components =  [item.key.description, item.value.estimatedCumulativeInfected?.description ?? "", item.value.estimatedNewInfected?.description ?? "", item.value.estimatedR0?.description ?? "",
+                    item.value.projectedCumulativeInfected?.description ?? "",
+                    item.value.projectedNewInfected?.description ?? "",
+                ]
+                return text + components.joined(separator: ",") + "\n"
+            }
+            
+            do {
+                try outString.write(to: fileURL, atomically: true, encoding: .utf8)
+            } catch {
+                print("Failed writing to URL: \(fileURL), Error: " + error.localizedDescription)
+            }
+        }
+    }
+    
     var estimatedCumulitiveinfectionData: [(Date, Double)] {
         return data.compactMap({ item in
             if let estimatedCumulitiveInfected = item.value.estimatedCumulativeInfected {
@@ -279,7 +304,7 @@ struct Covid19Model {
 /// Create a model with estimates on variables for Covid-19
 ///
 /// Unreported Deaths: As of 4/24 NYC Department of Health are reporting 10,746 confirmed deaths and 5,012 probable deaths. Estmate that unreported deaths is around 50% (source: https://www1.nyc.gov/site/doh/covid/covid-19-data.page)
-/// 
+///
 /// Mortality Rate: There is a much wider spread in estimates for mortality rates - although number of deaths can be reasonabily estimated, without widespread random testing it's hard to confirm how many cases lead to death.
 /// Recent random testing of 3,000 in across NY State suggests that 20% of NYC (~1.68 million) have antibodies suggesting exposure to Covid-19. Combining with 15,758 estimated deaths leads to estimated mortality rate of 0.94% (note this is higer than Cuomo's NY State estimate of 0.5, but he is not including probable deaths. (source: https://www.governor.ny.gov/news/audio-rush-transcript-governor-cuomo-guest-msnbcs-testing-road-reopening-nicolle-wallace)
 ///
