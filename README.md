@@ -4,6 +4,8 @@ This playground is a starting point for modeling Covid-19 cases based on availab
 
 ⚠️ **Warning** Current version is showing results that are very optimistic and I expect that results must be too good to be true and so are probably not accurate. Please use feel free to use this as a possible starting point for your own models.
 
+![Preview of chart output of covid-19 playground](preview.png)
+
 ## Example usage
 ````Swift
 let model = Covid19Model(
@@ -121,4 +123,4 @@ struct Wrapper: View {
 
 PlaygroundPage.current.setLiveView(Wrapper())
 ````
-![Preview of chart output of covid-19 playground](preview.png)
+
