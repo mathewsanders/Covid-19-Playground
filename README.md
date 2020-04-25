@@ -121,3 +121,4 @@ struct Wrapper: View {
 
 PlaygroundPage.current.setLiveView(Wrapper())
 ````
+![Preview of chart output of covid-19 playground](preview.png)
