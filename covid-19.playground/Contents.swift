@@ -99,41 +99,42 @@ struct Covid19Model {
         }))
         
         print("...Calculating the R0 and number of new infections for each date based on serial interval")
-        var infectionData: [Date: InfectionData] = Dictionary(uniqueKeysWithValues: estimatedInfected.compactMap({
+        
+        let estimatedNewInfection: [Date : (cumulative: Int, new: Int)] = Dictionary(uniqueKeysWithValues: estimatedInfected.compactMap({
             let currentDate = $0.key
             let currentInfected = $0.value
             
+            let yesterday = currentDate.advanced(by: daysRatio * TimeInterval(-1))
+            if let yesterdayInfected = estimatedInfected[yesterday] {
+                let deltaInfected = currentInfected - yesterdayInfected
+                return (currentDate, (cumulative: currentInfected, new: deltaInfected))
+            }
+            return nil
+        }))
+        
+        var infectionData: [Date: InfectionData] = Dictionary(uniqueKeysWithValues: estimatedNewInfection.map({ item in
+            
+            let currentDate = item.key
+            let currentInfected = item.value.cumulative
+            let newInfected = item.value.new
+            
             let futureDate = currentDate.advanced(by: daysRatio * TimeInterval(serialIntervalDays))
             
-            let yesterday = currentDate.advanced(by: daysRatio * TimeInterval(-1))
-            let yesterdayInfected = estimatedInfected[yesterday]
+            let infectedOnFutureDate = estimatedNewInfection[futureDate]
             
-            let deltaInfected = yesterdayInfected != nil ? currentInfected - yesterdayInfected! : 0
+            let currnetR0 = infectedOnFutureDate != nil && newInfected != 0 ?
+            Double(infectedOnFutureDate!.new) / Double(newInfected) : nil
             
-            if let infectedOnFutureDate = estimatedInfected[futureDate] {
-                let newInfected = infectedOnFutureDate - currentInfected
-                let currnetR0 = Double(newInfected)/Double(currentInfected)
-                return (currentDate, InfectionData(
-                    estimatedCumulativeInfected: currentInfected,
-                    estimatedNewInfected: deltaInfected,
-                    estimatedR0: currnetR0,
-                    projectedCumulativeInfected: nil,
-                    projectedNewInfected: nil,
-                    projectedR0: nil
-                ))
-            }
-            else {
-                return (currentDate, InfectionData(
-                    estimatedCumulativeInfected: currentInfected,
-                    estimatedNewInfected: deltaInfected,
-                    estimatedR0: nil,
-                    projectedCumulativeInfected: nil,
-                    projectedNewInfected: nil,
-                    projectedR0: nil
-                ))
-            }
+            return (currentDate, InfectionData(
+                estimatedCumulativeInfected: currentInfected,
+                estimatedNewInfected: newInfected,
+                estimatedR0: currnetR0,
+                projectedCumulativeInfected: nil,
+                projectedNewInfected: nil,
+                projectedR0: nil
+            ))
         }))
-             
+        
         print("...Sorting data by date")
         let sortedData =  infectionData.sorted(by: { left, right in
             return left.key < right.key
@@ -323,7 +324,7 @@ let model = Covid19Model(
 struct Wrapper: View {
     var body: some View {
         VStack {
-            Chart(data: model.estimatedR0Data, title: "Estimated R0", forceMaxValue: 1.0)
+            Chart(data: model.estimatedR0Data, title: "Estimated R0", forceMaxValue: 2.0)
                 .frame(width: 600, height: 300)
                 .background(Color.blue)
 
