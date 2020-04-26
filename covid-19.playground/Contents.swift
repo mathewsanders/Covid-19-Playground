@@ -136,7 +136,7 @@ struct Covid19Model {
         }))
         
         print("...Sorting data by date")
-        let sortedData =  infectionData.sorted(by: { left, right in
+        let sortedData = infectionData.sorted(by: { left, right in
             return left.key < right.key
         })
         
@@ -177,15 +177,31 @@ struct Covid19Model {
         print(" - Will now switch to projecting future infections based on most recent R0 value until estimated number of new infections per day drops below \(self.targetNewInfections) \n")
         
         print("...Projecting future infections based on most recent R0")
+        if averageR0 >= 1 {
+            print("**Warning** current R0 is not below 1, projecting forward 90 days instead of using target of \(targetNewInfections) new infections\n")
+        }
+        
+        guard let earliestDate = sortedData.first?.key else {
+            fatalError("no earliest date")
+        }
+        
         var numberOfDaysProjected = 0
         var lastDate = lastDateInfectionData.key
         repeat {
             let today = lastDate.advanced(by: daysRatio)
             let yesterdayInfectionData = infectionData[lastDate]!
-            let serialIntervalDate = today.advanced(by: daysRatio * TimeInterval(serialIntervalDays * -1))
-            let serialIntervalDateInfectionData = infectionData[serialIntervalDate]!
-            let r0 = serialIntervalDateInfectionData.estimatedR0 ?? averageR0
-            let todayNewInfected = Int(Double(serialIntervalDateInfectionData.anyNewInfected) * r0)
+            
+            // the estimated new infections fluctuate a lot based on
+            // day-to-day fluctuations in daily deaths which is probably
+            // due to bias in daily reporting (e.g. reporting at
+            // different times of the day) instead use an average from 7 days prior to serial interval date
+            let serialIntervalDatesSumNewInfected: Int = (0..<7).compactMap({ offset -> Int? in
+                let date = today.advanced(by: daysRatio * TimeInterval((serialIntervalDays + offset) * -1))
+                return infectionData[date]?.anyNewInfected
+                }).reduce(0, +)
+            
+            let todayNewInfected = Int((Double(serialIntervalDatesSumNewInfected) / 7) * averageR0)
+            
             let todayCumulativeInfected = todayNewInfected + yesterdayInfectionData.anyCumulativeInfected
             
             infectionData[today] = InfectionData(
@@ -206,14 +222,9 @@ struct Covid19Model {
         print(" - As of this date, estimate that cumulitive infections will have reached \(targetDateInfectionData.projectedCumulativeInfected!) \n")
         
         print("...Getting estimates for today")
-        
-        guard let earliestDate = sortedData.first?.key else {
-            fatalError("no date data")
-        }
-        
         let daysBetweenEarliestDateAndToday = (earliestDate.distance(to: Date())/daysRatio).rounded(.down) * daysRatio
         let todayDate = earliestDate.addingTimeInterval(daysBetweenEarliestDateAndToday)
-        print(todayDate)
+        
         guard let dataToday = infectionData[todayDate] else {
             fatalError("no data availble for today - check if target for projections occured on earlier date")
         }
