@@ -163,17 +163,10 @@ struct Covid19Model {
         //guard let minR0 = infectionData.compactMap({ $0.value.estimatedR0 }).min()
         print(" - lowest R0 value on \(minR0.key). R0 = \(minR0.value.estimatedR0!) \n")
         
-        print("...Getting most recent estimate for R0 based on estimated infections")
-        guard let lastR0 = sortedData.last(where: { item in
-            item.value.estimatedR0 != nil
-        }) else {
-            fatalError("Not enough datapoints to calculate last value for estimated R0")
-        }
-        print(" - Most recent date with estimated R0 is: \(lastR0.key). R0 = \(lastR0.value.estimatedR0!)\n")
-        if minR0.value.estimatedR0! < lastR0.value.estimatedR0! {
-            print("** Warning: lastest value is increase from min R0 **\n")
-        }
-        print("** Note: projections use fixed R0 of \(lastR0.value.estimatedR0!) **\n")
+        print("...Getting average R0 from last 7 days")
+        
+        let averageR0 = sortedData.compactMap({ $0.value.estimatedR0 }).suffix(7).reduce(0.0, +) / 7.0
+        print(" - Average R0 from last 7 days is \(averageR0)")
         
         print("...Getting most recent date with estimated infections")
         guard let lastDateInfectionData = sortedData.last else {
@@ -184,13 +177,14 @@ struct Covid19Model {
         print(" - Will now switch to projecting future infections based on most recent R0 value until estimated number of new infections per day drops below \(self.targetNewInfections) \n")
         
         print("...Projecting future infections based on most recent R0")
+        var numberOfDaysProjected = 0
         var lastDate = lastDateInfectionData.key
         repeat {
             let today = lastDate.advanced(by: daysRatio)
             let yesterdayInfectionData = infectionData[lastDate]!
             let serialIntervalDate = today.advanced(by: daysRatio * TimeInterval(serialIntervalDays * -1))
             let serialIntervalDateInfectionData = infectionData[serialIntervalDate]!
-            let r0 = serialIntervalDateInfectionData.estimatedR0 ?? lastR0.value.anyR0
+            let r0 = serialIntervalDateInfectionData.estimatedR0 ?? averageR0
             let todayNewInfected = Int(Double(serialIntervalDateInfectionData.anyNewInfected) * r0)
             let todayCumulativeInfected = todayNewInfected + yesterdayInfectionData.anyCumulativeInfected
             
@@ -200,11 +194,12 @@ struct Covid19Model {
                 estimatedR0: nil,
                 projectedCumulativeInfected: todayCumulativeInfected,
                 projectedNewInfected: todayNewInfected,
-                projectedR0: lastR0.value.estimatedR0!
+                projectedR0: averageR0
             )
             lastDate = today
+            numberOfDaysProjected = numberOfDaysProjected + 1
         }
-        while infectionData[lastDate]?.projectedNewInfected ?? 0 > targetNewInfections
+        while numberOfDaysProjected < 90 &&  infectionData[lastDate]?.projectedNewInfected ?? 0 > targetNewInfections
         
         let targetDateInfectionData = infectionData[lastDate]!
         print(" - Estimate that new infections will drop to \(targetDateInfectionData.projectedNewInfected!) on \(lastDate)")
