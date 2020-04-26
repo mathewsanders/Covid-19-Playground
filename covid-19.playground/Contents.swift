@@ -2,13 +2,13 @@ import SwiftUI
 import PlaygroundSupport
 
 struct CaseData: Hashable {
-    /// Cumulative number of cases estimated by observed deaths and death rate
+    /// Cumulative number of cases estimated by confirmed fatalities and fatality rate
     let estimatedCumulativeCases: Int?
     
-    /// New cases estimated by observed deaths and fatality rate
+    /// New cases estimated by confirmed fatalities and fatality rate
     let estimatedNewCases: Int?
     
-    /// R0 estimated by observed deaths
+    /// R0 estimated by estimate of new cases and serial interval
     let estimatedR0: Double?
     
     /// Cumulative number of cases estimated by using most recent R0 values
@@ -37,6 +37,7 @@ struct Covid19Model {
     
     typealias ProjectionTarget = (newCases: Int, days: Int)
     typealias InputCsvInfo = (fileName: String, dateFormat: String)
+    typealias SmoothingFactors = (fatalitySmoothing: Int, r0Smoothing: Int)
 
     private let unreportedFatalities: Double
     private let fatalityRate: Double
@@ -56,6 +57,7 @@ struct Covid19Model {
         - serialInterval: The number of days between successive cases in a chain of transmission.
         - projectionTarget: Targets used to determine how far ahead to project estimates.
         - inputCSVInfo: information about the csv file that contains infomration on confirmed fatalities.
+        - smoothing: information about moving average periods to apply to smooth estimates
         
      When projecting forward into the future, this value is used to determine how far in advance to project. for example setting this value to `(newCases: 0, days: 90)` will attempt to project forward to the day where the number of new cases is zero, or 90 days - which ever occurs first.
      Note: If recent average for R0 is not less than 1, then the target for new cases will never be met because new cases will continue to increase.
@@ -70,7 +72,16 @@ struct Covid19Model {
          fatalityPeriod: Int = 13,
          fatalityRate: Double = 1.00,
          projectionTarget: ProjectionTarget = (newCases: 0, days: 90),
-         inputCSVInfo: InputCsvInfo = (fileName: "data", dateFormat: "MM/dd/yyyy")) {
+         inputCSVInfo: InputCsvInfo = (fileName: "data", dateFormat: "MM/dd/yyyy"),
+         smoothing: SmoothingFactors = (fatalitySmoothing: 7, r0Smoothing: 7)) {
+        
+        assert((0.0...100).contains(unreportedFatalities), "Percentage of unreported fatalities must be between 0 and 100%")
+        assert((1...30).contains(incubationPeriod), "Incubation period must be beween 1 and 30 days")
+        assert((1...30).contains(fatalityPeriod), "Fatality period must be beween 1 and 30 days")
+        assert((0.1...10).contains(fatalityRate), "Fatality rate must be beween 0.1 and 10")
+        assert(projectionTarget.newCases >= 0, "target for new cases must be 0 or above")
+        assert((1...7).contains(smoothing.fatalitySmoothing), "Fatality smoothing must be between 1 and 7")
+        assert((1...7).contains(smoothing.r0Smoothing), "R0 smoothing must be between 1 and 7")
         
         self.serialInterval = serialInterval
         self.incubationPeriod = incubationPeriod
@@ -89,8 +100,7 @@ struct Covid19Model {
         
         print("...Loading data on confirmed fatalities from \(inputCSVInfo.fileName).csv")
         
-        let parsedCSV: [Date : Double] = Dictionary(uniqueKeysWithValues: content
-          .components(separatedBy: "\n")
+        let parsedCSV: [(Date, Double)] = content.components(separatedBy: "\n")
             .compactMap({ line in
                 let components = line.components(separatedBy: ",")
                 if let date = dateFormatter.date(from: components[0]),
@@ -101,12 +111,28 @@ struct Covid19Model {
                     return (date, totalFatalities)
                 }
                 return nil
-            }))
+            }).sorted(by: { left, right in left.0 < right.0 })
+        
+        print("...Smoothing fatality data with moving average of \(smoothing.fatalitySmoothing) days")
+        let fatalityDates = parsedCSV.map({ return $0.0})
+        let fatalityCounts = parsedCSV.map({ return $0.1})
+        
+        let fatalitiesMovingAverages = fatalityCounts.indices.map({ index -> Double in
+            let possibleMinOffset = index-(smoothing.fatalitySmoothing-1)
+            let minRange = possibleMinOffset < 0 ? 0 : possibleMinOffset
+            let range = (minRange...index)
+            let slice = fatalityCounts[range]
+            let average = Double(slice.reduce(0, +)) / Double(range.count)
+            return average
+        })
 
+        let datesFatalitiesMovingAverage = zip(fatalityDates, fatalitiesMovingAverages)
+        
         print("...Calculating the estimated number of cases based on confirmed fatalities, incubation period, fatality period, and fatality rate")
-        let estimatedCumulativeCases: [Date : Int] = Dictionary(uniqueKeysWithValues: parsedCSV.map({
-            let date = $0.key.advanced(by: daysRatio * TimeInterval(-(incubationPeriod + fatalityPeriod)))
-            let estimatedCases = $0.value * (100.0 / Double(fatalityRate))
+        
+        let estimatedCumulativeCases: [Date : Int] = Dictionary(uniqueKeysWithValues: datesFatalitiesMovingAverage.map({ tuple in
+            let date = tuple.0.advanced(by: daysRatio * TimeInterval(-(incubationPeriod + fatalityPeriod)))
+            let estimatedCases = tuple.1 * (100.0 / fatalityRate)
             
             return (date, Int(estimatedCases))
         }))
@@ -180,9 +206,9 @@ struct Covid19Model {
         
         print(" - lowest R0 value on \(minR0.key). R0 = \(minR0.value.estimatedR0!) \n")
         
-        print("...Getting average R0 from last 7 days")
+        print("...Getting average R0 from last \(smoothing.r0Smoothing) days")
         
-        let averageR0 = sortedCases.compactMap({ $0.value.estimatedR0 }).suffix(7).reduce(0.0, +) / 7.0
+        let averageR0 = sortedCases.compactMap({ $0.value.estimatedR0 }).suffix(smoothing.r0Smoothing).reduce(0.0, +) / Double(smoothing.r0Smoothing)
         print(" - Average R0 from last 7 days is \(averageR0)")
         
         print("...Getting most recent date with estimated cases")
@@ -241,7 +267,7 @@ struct Covid19Model {
         let dateToday = firstDateWithEstimatedCases.key.addingTimeInterval(daysBetweenEarliestDateAndToday)
         
         guard let casesToday = caseData[dateToday] else {
-            fatalError("no data availble for today - check if target for projections occured on earlier date")
+            fatalError("no data available for today - check if target for projections occurred on earlier date")
         }
         
         print(" - as of today \(dateToday)")
@@ -325,6 +351,10 @@ struct Covid19Model {
             return nil
         })
     }
+    
+    var caseData: [Date: CaseData] {
+        return self.data
+    }
 }
 
 /**
@@ -340,14 +370,15 @@ let model = Covid19Model(
                 serialInterval: 5,
                 incubationPeriod: 4,
                 fatalityPeriod: 13,
-                fatalityRate: 10,
-                projectionTarget: (newCases: 0, days: 90)
+                fatalityRate: 1,
+                projectionTarget: (newCases: 0, days: 30),
+                smoothing: (fatalitySmoothing: 7, r0Smoothing: 7)
             )
 
 struct Charts: View {
     var body: some View {
         VStack {
-            Chart(data: model.estimatedR0Data, title: "Estimated R0", forceMaxValue: 2.0)
+            Chart(data: model.estimatedR0Data, title: "Estimated R0", forceMaxValue: 4.0)
                 .frame(width: 600, height: 300)
                 .background(Color.blue)
 

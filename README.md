@@ -12,7 +12,8 @@ let model = Covid19Model(
     incubationPeriod: 4,
     fatalityPeriod: 13,
     fatalityRate: 10,
-    projectionTarget: (newCases: 0, days: 90)
+    projectionTarget: (newCases: 0, days: 90),
+    smoothing: (fatalitySmoothing: 7, r0Smoothing: 7)
 )
 ````  
 
@@ -20,13 +21,13 @@ This creates a dictionary using date as key, and contains the following struct a
 
 ````Swift
 struct CaseData: Hashable {
-    /// Cumulative number of cases estimated by observed deaths and death rate
+    /// Cumulative number of cases estimated by confirmed fatalities and fatality rate
     let estimatedCumulativeCases: Int?
     
-    /// New cases estimated by observed deaths and fatality rate
+    /// New cases estimated by confirmed fatalities and fatality rate
     let estimatedNewCases: Int?
     
-    /// R0 estimated by observed deaths
+    /// R0 estimated by estimate of new cases and serial interval
     let estimatedR0: Double?
     
     /// Cumulative number of cases estimated by using most recent R0 values
@@ -56,32 +57,35 @@ Projected values use an average from recent R0 values and recent new cases to pr
 
 ````
 ...Loading data on confirmed fatalities from data.csv
+...Smoothing fatality data with moving average of 7 days
 ...Calculating the estimated number of cases based on confirmed fatalities, incubation period, fatality period, and fatality rate
 ...Calculating the number of new cases for each date
 ...Calculating R0 for each date based on new cases for date, and new cases on future date based on serial interval
 ...End of estimations
 ...Sorting data by date
 ...Getting key R0 values
- - Good news! estimated R0 dropped below 1.0 on 2020-03-11 04:00:00 +0000. R0 = 0.8468468468468469 
+ - Good news! estimated R0 dropped below 1.0 on 2020-03-24 04:00:00 +0000. R0 = 0.8256494910191409 
 
 ...Getting lowest estimate for R0 based on estimated cases
- - lowest R0 value on 2020-03-22 04:00:00 +0000. R0 = 0.4594972067039106 
+ - lowest R0 value on 2020-03-26 04:00:00 +0000. R0 = 0.6633459119496855 
 
 ...Getting average R0 from last 7 days
- - Average R0 from last 7 days is 0.9951418983495034
+ - Average R0 from last 7 days is 1.0014521692567153
 ...Getting most recent date with estimated cases
- - Last date with estimated cases is 2020-04-08 04:00:00 +0000. Cumulative cases = 164415.
+ - Last date with estimated cases is 2020-04-09 04:00:00 +0000. Cumulative cases = 1544228.
  - Will now switch to projecting future cases based on most recent R0 value until estimated number of new cases per day drops below 0 
 
 ...Projecting future cases based on most recent R0
- - Estimate that new cases will drop to 5274 per day on 2020-07-07 04:00:00 +0000
- - As of this date, estimate that cumulative cases will have reached 653363 
+**Warning** current R0 is not below 1, projecting forward 90 days instead of using target of 0 new cases
+
+ - Estimate that new cases will drop to 57766 per day on 2020-05-09 04:00:00 +0000
+ - As of this date, estimate that cumulative cases will have reached 3272760 
 
 ...Getting estimates for today
  - as of today 2020-04-26 04:00:00 +0000
- - cumulative cases 265093
- - new cases 5514
- - r0 0.9951418983495034
+ - cumulative cases 2522740
+ - new cases 57613
+ - r0 1.0014521692567153
 
 ...End of projections
 ...Saving case data to output.csv in your documents folder
