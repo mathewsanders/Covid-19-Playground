@@ -1,31 +1,31 @@
 import SwiftUI
 import PlaygroundSupport
 
-struct InfectionData: Hashable {
-    /// Cumulitive number of people infected estimated by observed deaths and death rate
-    let estimatedCumulativeInfected: Int?
+struct CaseData: Hashable {
+    /// Cumulative number of cases estimated by observed deaths and death rate
+    let estimatedCumulativeCases: Int?
     
-    /// New people infected estimated by observed deaths and death rate
-    let estimatedNewInfected: Int?
+    /// New cases estimated by observed deaths and fatality rate
+    let estimatedNewCases: Int?
     
     /// R0 estimated by observed deaths
     let estimatedR0: Double?
     
-    /// Cumulitive number of people infected projected by most recent R0 value
-    let projectedCumulativeInfected: Int?
+    /// Cumulative number of cases estimated by using most recent R0 values
+    let projectedCumulativeCases: Int?
     
-    /// New people infected estimated by projected by most recent R0 value
-    let projectedNewInfected: Int?
+    /// New cases estimated by projected by using most recent R0 values
+    let projectedNewCases: Int?
     
-    /// R0 estimated by most recent estimated R0
+    /// R0 estimated by average of recent R0 values
     let projectedR0: Double?
     
-    var anyNewInfected: Int {
-        return estimatedNewInfected ?? (projectedNewInfected ?? 0)
+    var anyNewCases: Int {
+        return estimatedNewCases ?? (projectedNewCases ?? 0)
     }
     
-    var anyCumulativeInfected: Int {
-        return estimatedCumulativeInfected ?? (projectedCumulativeInfected ?? 0)
+    var anyCumulativeCases: Int {
+        return estimatedCumulativeCases ?? (projectedCumulativeCases ?? 0)
     }
     
     var anyR0: Double {
@@ -34,115 +34,132 @@ struct InfectionData: Hashable {
 }
 
 struct Covid19Model {
-    /// The percentage of deaths that are not reported
-    private let unreportedDeathsPercent: Double
     
-    /// The percentage of people who will die once infected with COVID-19
-    private let mortalityRatePercent: Double
+    typealias ProjectionTarget = (newCases: Int, days: Int)
+    typealias InputCsvInfo = (fileName: String, dateFormat: String)
+
+    private let unreportedFatalities: Double
+    private let fatalityRate: Double
+    private let incubationPeriod: Int
+    private let fatalityPeriod: Int
+    private let serialInterval: Int
+    private let projectionTarget: ProjectionTarget
+    private var data: [Date: CaseData] = [:]
     
-    /// The mean number of days from becoming infected to dying (for people who die)
-    private let incubationToDeathDays: Int
-    
-    /// The number of days between successive cases in a chain of transmission.
-    private let serialIntervalDays: Int
-    
-    /// When projecting forward into the future, this number is used to determine how far in advance to project.
-    /// for example:
-    /// - setting this value to 100 will look for the earliest future date where the number of new infections is less than 100
-    /// - setting this value to 0 will look for the earlist future date where there are no new infections
-    private let targetNewInfections: Int
-    
-    /// number of seconds in a day
-    private let daysRatio: TimeInterval = 24*60*60
-    
-    private var data: [Date: InfectionData] = [:]
-    
-    init(unreportedDeathsPercent: Double = 50.0, mortalityRatePercent: Double = 1.00, incubationToDeathDays: Int = 17, serialIntervalDays: Int = 4, targetNewInfections: Int = 0, csvName: String = "data" , csvDateFormat: String = "MM/dd/yyyy") {
+    /**
+     Creates a model for Covid-19 based on confimred fatalities and other varaibles
+     
+     - Parameters:
+        - unreportedFatalities: The percentage of fatalities that are not reported  (for example NY State currently reports only confirmed cases from hospitals and nursing homes. Fatalities that occur at home, or for people with symptoms that were not tested and diagnosed are not counted as confirmed cases).
+        - fatalityRate: The percentage cases that will lead to fatality.
+        - incubationPeriod: The mean number of days from becoming infected to onset of symptoms.
+        - serialInterval: The number of days between successive cases in a chain of transmission.
+        - projectionTarget: Targets used to determine how far ahead to project estimates.
+        - inputCSVInfo: information about the csv file that contains infomration on confirmed fatalities.
         
-        self.unreportedDeathsPercent = unreportedDeathsPercent
-        self.mortalityRatePercent = mortalityRatePercent
-        self.incubationToDeathDays = incubationToDeathDays
-        self.serialIntervalDays = serialIntervalDays
-        self.targetNewInfections = targetNewInfections
+     When projecting forward into the future, this value is used to determine how far in advance to project. for example setting this value to `(newCases: 0, days: 90)` will attempt to project forward to the day where the number of new cases is zero, or 90 days - which ever occurs first.
+     Note: If recent average for R0 is not less than 1, then the target for new cases will never be met because new cases will continue to increase.
+     
+     Resources folder should contain a csv file with two columns
+     - First column: date of confirmed fatalties
+     - Second column: number of confirmed fatalities
+     */
+    init(unreportedFatalities: Double = 50.0,
+         serialInterval: Int = 4,
+         incubationPeriod: Int = 4,
+         fatalityPeriod: Int = 13,
+         fatalityRate: Double = 1.00,
+         projectionTarget: ProjectionTarget = (newCases: 0, days: 90),
+         inputCSVInfo: InputCsvInfo = (fileName: "data", dateFormat: "MM/dd/yyyy")) {
+        self.serialInterval = serialInterval
+        self.incubationPeriod = incubationPeriod
+        self.fatalityRate = fatalityRate
+        self.fatalityPeriod = fatalityPeriod
+        self.unreportedFatalities = unreportedFatalities
+        self.projectionTarget = projectionTarget
         
-        /// Resources folder should contain a csv file with two columns
-        /// First column: Date in MM/dd/yyyy format
-        /// Second column: number of deaths recorded on that date
-        let fileURL = Bundle.main.url(forResource: csvName, withExtension: "csv")!
+        let daysRatio: TimeInterval = 24*60*60
+        let fileURL = Bundle.main.url(forResource: inputCSVInfo.fileName, withExtension: "csv")!
         let content = try! String(contentsOf: fileURL, encoding: String.Encoding.utf8)
 
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX") // set locale to reliable US_POSIX
-        dateFormatter.dateFormat = csvDateFormat // expected date format in CSV file
+        dateFormatter.dateFormat = inputCSVInfo.dateFormat // expected date format in CSV file
         
-        print("...Loading data from csv")
+        print("...Loading data on confirmed fatalities from \(inputCSVInfo.fileName).csv")
         
         let parsedCSV: [Date : Double] = Dictionary(uniqueKeysWithValues: content
           .components(separatedBy: "\n")
             .compactMap({ line in
                 let components = line.components(separatedBy: ",")
                 if let date = dateFormatter.date(from: components[0]),
-                    let deaths = Int(components[1].trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    let unreportedDeaths = Double(deaths) * (Double(unreportedDeathsPercent)/100.0)
+                    let confirmedFatalities = Int(components[1].trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    let unreportedFatalities = Double(confirmedFatalities) * (Double(unreportedFatalities)/100.0)
+                    let totalFatalities = Double(confirmedFatalities) + unreportedFatalities
                     
-                    let totalDeaths = Double(deaths) + unreportedDeaths
-                    return (date, totalDeaths)
+                    return (date, totalFatalities)
                 }
                 return nil
             }))
 
-        print("...Calculating the estimated number of people infected based on observed deaths, incubation period, and mortality rate")
-        let estimatedInfected: [Date : Int] = Dictionary(uniqueKeysWithValues: parsedCSV.map({
-            let date = $0.key.advanced(by: daysRatio * TimeInterval(-incubationToDeathDays))
-            let estimatedInfected = $0.value * (100.0 / Double(mortalityRatePercent))
-            return (date, Int(estimatedInfected))
+        print("...Calculating the estimated number of cases based on observed deaths, incubation period, and mortality rate")
+        let estimatedCumulativeCases: [Date : Int] = Dictionary(uniqueKeysWithValues: parsedCSV.map({
+            let date = $0.key.advanced(by: daysRatio * TimeInterval(-(incubationPeriod + fatalityPeriod)))
+            let estimatedCases = $0.value * (100.0 / Double(fatalityRate))
+            
+            return (date, Int(estimatedCases))
         }))
         
-        print("...Calculating the R0 and number of new infections for each date based on serial interval")
+        print("...Calculating the number of new cases for each date based on serial interval")
         
-        let estimatedNewInfection: [Date : (cumulative: Int, new: Int)] = Dictionary(uniqueKeysWithValues: estimatedInfected.compactMap({
-            let currentDate = $0.key
-            let currentInfected = $0.value
+        let estimatedCumulativeAndNewCases: [Date : (cumulative: Int, new: Int)] = Dictionary(uniqueKeysWithValues: estimatedCumulativeCases.compactMap({
+            let dateToday = $0.key
+            let cumulativeCasesToday = $0.value
+            let dateYesterday = dateToday.advanced(by: daysRatio * TimeInterval(-1))
             
-            let yesterday = currentDate.advanced(by: daysRatio * TimeInterval(-1))
-            if let yesterdayInfected = estimatedInfected[yesterday] {
-                let deltaInfected = currentInfected - yesterdayInfected
-                return (currentDate, (cumulative: currentInfected, new: deltaInfected))
+            if let cumulativeCasesYesterday = estimatedCumulativeCases[dateYesterday] {
+                let newCasesToday = cumulativeCasesToday - cumulativeCasesYesterday
+                return (dateToday, (cumulative: cumulativeCasesToday, new: newCasesToday))
             }
             return nil
         }))
         
-        var infectionData: [Date: InfectionData] = Dictionary(uniqueKeysWithValues: estimatedNewInfection.map({ item in
+        var caseData: [Date: CaseData] = Dictionary(uniqueKeysWithValues: estimatedCumulativeAndNewCases.map({
             
-            let currentDate = item.key
-            let currentInfected = item.value.cumulative
-            let newInfected = item.value.new
+            let dateToday = $0.key
+            let cumulativeCasesToday = $0.value.cumulative
+            let newCasesToday = $0.value.new
             
-            let futureDate = currentDate.advanced(by: daysRatio * TimeInterval(serialIntervalDays))
+            let futureTransmissionDate = dateToday.advanced(by: daysRatio * TimeInterval(serialInterval))
             
-            let infectedOnFutureDate = estimatedNewInfection[futureDate]
+            let casesOnFutureTransmissionDate = estimatedCumulativeAndNewCases[futureTransmissionDate]
             
-            let currnetR0 = infectedOnFutureDate != nil && newInfected != 0 ?
-            Double(infectedOnFutureDate!.new) / Double(newInfected) : nil
+            // if there are no new cases today, set R0 to nil rather than infinity
+            let currnetR0 = casesOnFutureTransmissionDate != nil && newCasesToday != 0 ?
+            Double(casesOnFutureTransmissionDate!.new) / Double(newCasesToday) : nil
             
-            return (currentDate, InfectionData(
-                estimatedCumulativeInfected: currentInfected,
-                estimatedNewInfected: newInfected,
+            let caseData = CaseData(
+                estimatedCumulativeCases: cumulativeCasesToday,
+                estimatedNewCases: newCasesToday,
                 estimatedR0: currnetR0,
-                projectedCumulativeInfected: nil,
-                projectedNewInfected: nil,
+                projectedCumulativeCases: nil,
+                projectedNewCases: nil,
                 projectedR0: nil
-            ))
+            )
+            
+            return (dateToday, caseData)
         }))
         
+        print("...End of estimations")
+        
         print("...Sorting data by date")
-        let sortedData = infectionData.sorted(by: { left, right in
+        let sortedCases = caseData.sorted(by: { left, right in
             return left.key < right.key
         })
         
         print("...Getting key R0 values")
         
-        if let firstR0BelowOne = sortedData.first(where: { item in
+        if let firstR0BelowOne = sortedCases.first(where: { item in
             item.value.estimatedR0 != nil && item.value.estimatedR0! < 1
         }) {
             print(" - Good news! estimated R0 dropped below 1.0 on \(firstR0BelowOne.key). R0 = \(firstR0BelowOne.value.estimatedR0!) \n")
@@ -150,8 +167,8 @@ struct Covid19Model {
             print(" - Estimated R0 has not yet dropped below one \n")
         }
         
-        print("...Getting lowest estimate for R0 based on estimated infections")
-        guard let minR0 = infectionData.filter({ item in
+        print("...Getting lowest estimate for R0 based on estimated cases")
+        guard let minR0 = caseData.filter({ item in
             return item.value.estimatedR0 != nil
         }).min(by: { left, right -> Bool in
             return left.value.estimatedR0! < right.value.estimatedR0!
@@ -160,82 +177,79 @@ struct Covid19Model {
             fatalError("No R0 data")
         }
         
-        //guard let minR0 = infectionData.compactMap({ $0.value.estimatedR0 }).min()
         print(" - lowest R0 value on \(minR0.key). R0 = \(minR0.value.estimatedR0!) \n")
         
         print("...Getting average R0 from last 7 days")
         
-        let averageR0 = sortedData.compactMap({ $0.value.estimatedR0 }).suffix(7).reduce(0.0, +) / 7.0
+        let averageR0 = sortedCases.compactMap({ $0.value.estimatedR0 }).suffix(7).reduce(0.0, +) / 7.0
         print(" - Average R0 from last 7 days is \(averageR0)")
         
-        print("...Getting most recent date with estimated infections")
-        guard let lastDateInfectionData = sortedData.last else {
+        print("...Getting most recent date with estimated cases")
+        guard let firstDateWithEstimatedCases = sortedCases.first, let lastDateWithEstimatedCases = sortedCases.last else {
             fatalError("No dates in data")
         }
         
-        print(" - Last date with estimated infections is \(lastDateInfectionData.key). Cumulative infections = \(lastDateInfectionData.value.estimatedCumulativeInfected!).")
-        print(" - Will now switch to projecting future infections based on most recent R0 value until estimated number of new infections per day drops below \(self.targetNewInfections) \n")
+        print(" - Last date with estimated cases is \(lastDateWithEstimatedCases.key). Cumulative cases = \(lastDateWithEstimatedCases.value.estimatedCumulativeCases!).")
+        print(" - Will now switch to projecting future cases based on most recent R0 value until estimated number of new cases per day drops below \(projectionTarget.newCases) \n")
         
-        print("...Projecting future infections based on most recent R0")
+        print("...Projecting future cases based on most recent R0")
         if averageR0 >= 1 {
-            print("**Warning** current R0 is not below 1, projecting forward 90 days instead of using target of \(targetNewInfections) new infections\n")
-        }
-        
-        guard let earliestDate = sortedData.first?.key else {
-            fatalError("no earliest date")
+            print("**Warning** current R0 is not below 1, projecting forward 90 days instead of using target of \(projectionTarget.newCases) new cases\n")
         }
         
         var numberOfDaysProjected = 0
-        var lastDate = lastDateInfectionData.key
+        var lastDate = lastDateWithEstimatedCases.key
         repeat {
-            let today = lastDate.advanced(by: daysRatio)
-            let yesterdayInfectionData = infectionData[lastDate]!
+            let dateToday = lastDate.advanced(by: daysRatio)
+            let caseDataYesterday = caseData[lastDate]!
             
-            // the estimated new infections fluctuate a lot based on
-            // day-to-day fluctuations in daily deaths which is probably
-            // due to bias in daily reporting (e.g. reporting at
-            // different times of the day) instead use an average from 7 days prior to serial interval date
-            let serialIntervalDatesSumNewInfected: Int = (0..<7).compactMap({ offset -> Int? in
-                let date = today.advanced(by: daysRatio * TimeInterval((serialIntervalDays + offset) * -1))
-                return infectionData[date]?.anyNewInfected
+            // the estimated new cases fluctuate a lot based on day-to-day fluctuations in confirmed deaths
+            // each day which is probabl due to bias in daily reporting (e.g. reporting at different times
+            // of the day). Instead use an average from 7 days prior to serial interval date
+            let serialIntervalDatesSumNewCases: Int = (0..<7).compactMap({ offset -> Int? in
+                let date = dateToday.advanced(by: daysRatio * TimeInterval((serialInterval + offset) * -1))
+                return caseData[date]?.anyNewCases
                 }).reduce(0, +)
             
-            let todayNewInfected = Int((Double(serialIntervalDatesSumNewInfected) / 7) * averageR0)
+            let newCasesToday = Int((Double(serialIntervalDatesSumNewCases) / 7) * averageR0)
             
-            let todayCumulativeInfected = todayNewInfected + yesterdayInfectionData.anyCumulativeInfected
-            
-            infectionData[today] = InfectionData(
-                estimatedCumulativeInfected: nil,
-                estimatedNewInfected: nil,
+            let cumulativeCasesToday = newCasesToday + caseDataYesterday.anyCumulativeCases
+            let caseDataToday = CaseData(
+                estimatedCumulativeCases: nil,
+                estimatedNewCases: nil,
                 estimatedR0: nil,
-                projectedCumulativeInfected: todayCumulativeInfected,
-                projectedNewInfected: todayNewInfected,
+                projectedCumulativeCases: cumulativeCasesToday,
+                projectedNewCases: newCasesToday,
                 projectedR0: averageR0
             )
-            lastDate = today
+            
+            caseData[dateToday] = caseDataToday
+            lastDate = dateToday
             numberOfDaysProjected = numberOfDaysProjected + 1
         }
-        while numberOfDaysProjected < 90 &&  infectionData[lastDate]?.projectedNewInfected ?? 0 > targetNewInfections
+        while numberOfDaysProjected < projectionTarget.days && caseData[lastDate]?.projectedNewCases ?? 0 > projectionTarget.newCases
         
-        let targetDateInfectionData = infectionData[lastDate]!
-        print(" - Estimate that new infections will drop to \(targetDateInfectionData.projectedNewInfected!) on \(lastDate)")
-        print(" - As of this date, estimate that cumulitive infections will have reached \(targetDateInfectionData.projectedCumulativeInfected!) \n")
+        let targetDateCaseData = caseData[lastDate]!
+        print(" - Estimate that new cases will drop to \(targetDateCaseData.projectedNewCases!) per day on \(lastDate)")
+        print(" - As of this date, estimate that cumulative cases will have reached \(targetDateCaseData.projectedCumulativeCases!) \n")
         
         print("...Getting estimates for today")
-        let daysBetweenEarliestDateAndToday = (earliestDate.distance(to: Date())/daysRatio).rounded(.down) * daysRatio
-        let todayDate = earliestDate.addingTimeInterval(daysBetweenEarliestDateAndToday)
+        let daysBetweenEarliestDateAndToday = (firstDateWithEstimatedCases.key.distance(to: Date())/daysRatio).rounded(.down) * daysRatio
+        let dateToday = firstDateWithEstimatedCases.key.addingTimeInterval(daysBetweenEarliestDateAndToday)
         
-        guard let dataToday = infectionData[todayDate] else {
+        guard let casesToday = caseData[dateToday] else {
             fatalError("no data availble for today - check if target for projections occured on earlier date")
         }
         
-        print(" - as of today \(todayDate)")
-        print(" - cumulative infected \(dataToday.anyCumulativeInfected)")
-        print(" - new infected \(dataToday.anyNewInfected)")
-        print(" - r0 \(dataToday.anyR0)\n")
+        print(" - as of today \(dateToday)")
+        print(" - cumulative cases \(casesToday.anyCumulativeCases)")
+        print(" - new cases \(casesToday.anyNewCases)")
+        print(" - r0 \(casesToday.anyR0)\n")
         
-        print("...end of calculations")
-        self.data = infectionData
+        print("...End of projections")
+        self.data = caseData
+        
+        print("...Saving case data to output.csv in your documents folder")
         
         let fileName = "output"
         let dir = try? FileManager.default.url(for: .documentDirectory,
@@ -243,13 +257,11 @@ struct Covid19Model {
         
         // If the directory was found, we write a file to it and read it back
         if let fileURL = dir?.appendingPathComponent(fileName).appendingPathExtension("csv") {
-
-            // Write to the file named Test
             
-            let outString = infectionData.reduce("Date, Estimated Cumulative Infected, Estimated New Infected, Estimated R0, Projected Cumulative Infected, Projected New Infected\n") { text, item in
-                let components =  [item.key.description, item.value.estimatedCumulativeInfected?.description ?? "", item.value.estimatedNewInfected?.description ?? "", item.value.estimatedR0?.description ?? "",
-                    item.value.projectedCumulativeInfected?.description ?? "",
-                    item.value.projectedNewInfected?.description ?? "",
+            let outString = caseData.reduce("Date, Estimated Cumulative Cases, Estimated New Cases, Estimated R0, Projected Cumulative Cases, Projected New Cases\n") { text, item in
+                let components =  [item.key.description, item.value.estimatedCumulativeCases?.description ?? "", item.value.estimatedNewCases?.description ?? "", item.value.estimatedR0?.description ?? "",
+                    item.value.projectedCumulativeCases?.description ?? "",
+                    item.value.projectedNewCases?.description ?? "",
                 ]
                 return text + components.joined(separator: ",") + "\n"
             }
@@ -262,10 +274,10 @@ struct Covid19Model {
         }
     }
     
-    var estimatedCumulitiveinfectionData: [(Date, Double)] {
+    var estimatedCumulativeCasesData: [(Date, Double)] {
         return data.compactMap({ item in
-            if let estimatedCumulitiveInfected = item.value.estimatedCumulativeInfected {
-                return (item.key, Double(estimatedCumulitiveInfected))
+            if let cumulativeCases = item.value.estimatedCumulativeCases {
+                return (item.key, Double(cumulativeCases))
             }
             return nil
         })
@@ -280,77 +292,75 @@ struct Covid19Model {
         })
     }
     
-    var estimatedNewInfectedData: [(Date, Double)] {
+    var estimatedNewCasesData: [(Date, Double)] {
         return data.compactMap({ item in
-            if let newInfected = item.value.estimatedNewInfected {
-                return (item.key, Double(newInfected))
+            if let newCases = item.value.estimatedNewCases {
+                return (item.key, Double(newCases))
             }
             return nil
         })
     }
     
-    var projectedCumulitiveinfectionData: [(Date, Double)] {
+    var projectedCumulativeCasesData: [(Date, Double)] {
         return data.compactMap({ item in
-            if let cumulitiveInfected = item.value.projectedCumulativeInfected {
-                return (item.key, Double(cumulitiveInfected))
+            if let cumulativeCases = item.value.projectedCumulativeCases {
+                return (item.key, Double(cumulativeCases))
             }
             return nil
         })
     }
     
-    var projectedNewInfectedData: [(Date, Double)] {
+    var projectedNewCasesData: [(Date, Double)] {
         return data.compactMap({ item in
-            if let newInfected = item.value.projectedNewInfected {
-                return (item.key, Double(newInfected))
+            if let newCases = item.value.projectedNewCases {
+                return (item.key, Double(newCases))
             }
             return nil
         })
     }
 }
 
-/// Create a model with estimates on variables for Covid-19
-///
-/// Unreported Deaths: As of 4/24 NYC Department of Health are reporting 10,746 confirmed deaths and 5,012 probable deaths. Estmate that unreported deaths is around 50% (source: https://www1.nyc.gov/site/doh/covid/covid-19-data.page)
-///
-/// Mortality Rate: There is a much wider spread in estimates for mortality rates - although number of deaths can be reasonabily estimated, without widespread random testing it's hard to confirm how many cases lead to death.
-/// Recent random testing of 3,000 in across NY State suggests that 20% of NYC (~1.68 million) have antibodies suggesting exposure to Covid-19. Combining with 15,758 estimated deaths leads to estimated mortality rate of 0.94% (note this is higer than Cuomo's NY State estimate of 0.5, but he is not including probable deaths. (source: https://www.governor.ny.gov/news/audio-rush-transcript-governor-cuomo-guest-msnbcs-testing-road-reopening-nicolle-wallace)
-///
-/// Incubation to death: Mean number of days from incubation to death combines both the mean incubation period (infection to symptoms) of 4-5 days (sournce: https://www.ncbi.nlm.nih.gov/pubmed/32150748) and mean number of days from onset of illness to death of 13 days (source: https://www.ncbi.nlm.nih.gov/pubmed/32079150)
-///
-/// Serial interval: Mean estimated as 4 days (source: https://www.ncbi.nlm.nih.gov/pubmed/32145466)
-
+/**
+Create a model with estimates on variables for Covid-19
+ - Unreported Fatalities: As of 4/24 NYC Department of Health are reporting 10,746 confirmed fatalities and 5,012 probable fatalities. Estmate that unreported fatalities is around 50%. Source: https://www1.nyc.gov/site/doh/covid/covid-19-data.page
+ - Serial interval: Mean estimated as 4 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32145466
+ - Incubation period: Mean number of days from infection to onset of symptoms 4-5 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32150748
+ - Fatality period: mean number of days from onset of symptoms to fatality of 13 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32079150
+ - Fatality rate: There is a much wider spread in estimates for fatality rates - although number of deaths can be reasonabily estimated, without widespread random testing it's hard to confirm how many cases lead to death. Recent random testing of 3,000 cases across NY State suggests that 20% of NYC (~1.68 million) have antibodies suggesting exposure to Covid-19. Combining with 15,758 estimated deaths leads to estimated mortality rate of 0.94% (note this is higer than Cuomo's NY State estimate of 0.5, but he is not including probable deaths. Source: https://www.governor.ny.gov/news/audio-rush-transcript-governor-cuomo-guest-msnbcs-testing-road-reopening-nicolle-wallace
+*/
 let model = Covid19Model(
-                unreportedDeathsPercent: 50,
-                mortalityRatePercent: 1.0,
-                incubationToDeathDays: 17,
-                serialIntervalDays: 5,
-                targetNewInfections: 0
+                unreportedFatalities: 50,
+                serialInterval: 5,
+                incubationPeriod: 4,
+                fatalityPeriod: 13,
+                fatalityRate: 10,
+                projectionTarget: (newCases: 0, days: 90)
             )
 
-struct Wrapper: View {
+struct Charts: View {
     var body: some View {
         VStack {
             Chart(data: model.estimatedR0Data, title: "Estimated R0", forceMaxValue: 2.0)
                 .frame(width: 600, height: 300)
                 .background(Color.blue)
 
-            Chart(data: model.estimatedCumulitiveinfectionData, title: "Estimated Infections (Cumulative)")
+            Chart(data: model.estimatedCumulativeCasesData, title: "Estimated Cumulative Cases")
                 .frame(width: 600, height: 300)
                 .background(Color.yellow)
 
-            Chart(data: model.projectedCumulitiveinfectionData, title: "Projected Infections (Cumulative)")
+            Chart(data: model.projectedCumulativeCasesData, title: "Projected Cumulative Cases")
                 .frame(width: 600, height: 300)
                 .background(Color.yellow)
 
-            Chart(data: model.estimatedNewInfectedData, title: "Estimated New Infected Daily")
+            Chart(data: model.estimatedNewCasesData, title: "Estimated New Cases")
                 .frame(width: 600, height: 300)
                 .background(Color.green)
 
-            Chart(data: model.projectedNewInfectedData, title: "Projected New Infected Daily")
+            Chart(data: model.projectedNewCasesData, title: "Projected New Cases")
                 .frame(width: 600, height: 300)
                 .background(Color.green)
         }
     }
 }
 
-PlaygroundPage.current.setLiveView(Wrapper())
+PlaygroundPage.current.setLiveView(Charts())
