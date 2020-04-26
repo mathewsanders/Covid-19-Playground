@@ -2,8 +2,6 @@
 
 This playground is a starting point for modeling Covid-19 cases based on available data on confirmed deaths due to Covid-19.
 
-⚠️ **Warning** Current version is showing results that are very optimistic and I expect that results must be too good to be true and so are probably not accurate. Please use feel free to use this as a possible starting point for your own models.
-
 ![Preview of chart output of covid-19 playground](preview.png)
 
 ## Example usage
@@ -53,7 +51,7 @@ The following are used as default values if not provided
 Output is divided into two *estimated* and *projected* values.
 Estimated data uses the data on confirmed deaths from the CSV file and variables set on the model to make estimates for R0, cumulative deaths, and new deaths for each day.
 Estimates are limited from the most recent confirmed number of deaths, and estimated mean nunmber of days from incubation to death.
-Projected values assume that the current R0 value is fixed, and uses this to project forward possible future values.
+Projected values use 7-day averages for R0 and new infected to project values for future cases, either until a target number of new infections passes, or 90 days (whichever is first).
 
 ````
 ...Loading data from csv
@@ -61,32 +59,26 @@ Projected values assume that the current R0 value is fixed, and uses this to pro
 ...Calculating the R0 and number of new infections for each date based on serial interval
 ...Sorting data by date
 ...Getting key R0 values
- - Good news! estimated R0 dropped below 1.0 on 2020-03-15 04:00:00 +0000. R0 = 0.992721979621543 
+ - Good news! estimated R0 dropped below 1.0 on 2020-03-11 04:00:00 +0000. R0 = 0.8468468468468469 
 
 ...Getting lowest estimate for R0 based on estimated infections
- - lowest R0 value on 2020-04-01 04:00:00 +0000. R0 = 0.21803977272727273 
+ - lowest R0 value on 2020-03-22 04:00:00 +0000. R0 = 0.4594972067039106 
 
-...Getting most recent estimate for R0 based on estimated infections
- - Most recent date with estimated R0 is: 2020-04-02 04:00:00 +0000. R0 = 0.21965799031476999
-
-** Warning: lastest value is increase from min R0 **
-
-** Note: projections use fixed R0 of 0.21965799031476999 **
-
+...Getting average R0 from last 7 days
+ - Average R0 from last 7 days is 0.9951418983495034
 ...Getting most recent date with estimated infections
- - Last date with estimated infections is 2020-04-07 04:00:00 +0000. Cumulative infections = 1611900.
+ - Last date with estimated infections is 2020-04-08 04:00:00 +0000. Cumulative infections = 1644150.
  - Will now switch to projecting future infections based on most recent R0 value until estimated number of new infections per day drops below 0 
 
 ...Projecting future infections based on most recent R0
- - Estimate that new infections will drop to 0 on 2020-05-08 04:00:00 +0000
- - As of this date, estimate that cumulitive infections will have reached 1693592 
+ - Estimate that new infections will drop to 52798 on 2020-07-07 04:00:00 +0000
+ - As of this date, estimate that cumulitive infections will have reached 6536282 
 
 ...Getting estimates for today
-2020-04-25 04:00:00 +0000
  - as of today 2020-04-25 04:00:00 +0000
- - cumulative infected 1693138
- - new infected 133
- - r0 0.21965799031476999
+ - cumulative infected 2595946
+ - new infected 54842
+ - r0 0.9951418983495034
 
 ...end of calculations
 ````
@@ -124,3 +116,8 @@ struct Wrapper: View {
 PlaygroundPage.current.setLiveView(Wrapper())
 ````
 
+## Output
+
+Running the playground also generates an `output.csv` file in your Documents folder. This contains the results of the model if needed for further post-processing. 
+
+![Preview of csv file generated from covid-19 playground](output.csv-preview.png)
