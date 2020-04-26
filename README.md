@@ -56,8 +56,9 @@ Projected values use an average from recent R0 values and recent new cases to pr
 
 ````
 ...Loading data on confirmed fatalities from data.csv
-...Calculating the estimated number of cases based on observed deaths, incubation period, and mortality rate
-...Calculating the number of new cases for each date based on serial interval
+...Calculating the estimated number of cases based on confirmed fatalities, incubation period, fatality period, and fatality rate
+...Calculating the number of new cases for each date
+...Calculating R0 for each date based on new cases for date, and new cases on future date based on serial interval
 ...End of estimations
 ...Sorting data by date
 ...Getting key R0 values
