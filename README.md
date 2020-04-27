@@ -13,7 +13,7 @@ let model = Covid19Model(
     fatalityPeriod: 13,
     fatalityRate: 10,
     projectionTarget: (newCases: 0, days: 90),
-    smoothing: (fatalitySmoothing: 7, r0Smoothing: 7)
+    smoothing: (fatalitySmoothing: 7, r0Smoothing: 3)
 )
 ````  
 
@@ -67,25 +67,24 @@ Projected values use an average from recent R0 values and recent new cases to pr
  - Good news! estimated R0 dropped below 1.0 on 2020-03-24 04:00:00 +0000. R0 = 0.8256494910191409 
 
 ...Getting lowest estimate for R0 based on estimated cases
- - lowest R0 value on 2020-03-26 04:00:00 +0000. R0 = 0.6633459119496855 
+ - Lowest R0 value on 2020-03-26 04:00:00 +0000. R0 = 0.6633459119496855 
 
-...Getting average R0 from last 7 days
- - Average R0 from last 7 days is 1.0014521692567153
+...Getting average from recent R0 estimates
+ - Average R0 from 2020-04-05 04:00:00 +0000 with 3 day moving average is 0.9646211112006772 
+
 ...Getting most recent date with estimated cases
- - Last date with estimated cases is 2020-04-09 04:00:00 +0000. Cumulative cases = 1544228.
+ - Last date with estimated cases is 2020-04-10 04:00:00 +0000. Cumulative cases = 1600092.
  - Will now switch to projecting future cases based on most recent R0 value until estimated number of new cases per day drops below 0 
 
 ...Projecting future cases based on most recent R0
-**Warning** current R0 is not below 1, projecting forward 90 days instead of using target of 0 new cases
-
- - Estimate that new cases will drop to 57766 per day on 2020-05-09 04:00:00 +0000
- - As of this date, estimate that cumulative cases will have reached 3272760 
+ - Estimate that new cases will drop to 49196 per day on 2020-05-10 04:00:00 +0000
+ - As of this date, estimate that cumulative cases will have reached 3176235 
 
 ...Getting estimates for today
- - as of today 2020-04-26 04:00:00 +0000
- - cumulative cases 2522740
- - new cases 57613
- - r0 1.0014521692567153
+ - as of today 2020-04-27 04:00:00 +0000
+ - cumulative cases 2519197
+ - new cases 52120
+ - r0 0.9646211112006772
 
 ...End of projections
 ...Saving case data to output.csv in your documents folder

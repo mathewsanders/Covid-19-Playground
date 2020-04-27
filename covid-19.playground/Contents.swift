@@ -204,12 +204,16 @@ struct Covid19Model {
             fatalError("No R0 data")
         }
         
-        print(" - lowest R0 value on \(minR0.key). R0 = \(minR0.value.estimatedR0!) \n")
+        print(" - Lowest R0 value on \(minR0.key). R0 = \(minR0.value.estimatedR0!) \n")
         
-        print("...Getting average R0 from last \(smoothing.r0Smoothing) days")
+        print("...Getting average from recent R0 estimates")
         
-        let averageR0 = sortedCases.compactMap({ $0.value.estimatedR0 }).suffix(smoothing.r0Smoothing).reduce(0.0, +) / Double(smoothing.r0Smoothing)
-        print(" - Average R0 from last 7 days is \(averageR0)")
+        let latestR0EstimateCases = sortedCases.filter({ item in
+            item.value.estimatedR0 != nil
+        }).suffix(smoothing.r0Smoothing)
+        
+        let averageR0 = latestR0EstimateCases.compactMap({ $0.value.estimatedR0 }).reduce(0.0, +) / Double(smoothing.r0Smoothing)
+        print(" - Average R0 from \(latestR0EstimateCases.last!.key) with \(smoothing.r0Smoothing) day moving average is \(averageR0) \n")
         
         print("...Getting most recent date with estimated cases")
         guard let firstDateWithEstimatedCases = sortedCases.first, let lastDateWithEstimatedCases = sortedCases.last else {
@@ -372,13 +376,13 @@ let model = Covid19Model(
                 fatalityPeriod: 13,
                 fatalityRate: 1,
                 projectionTarget: (newCases: 0, days: 30),
-                smoothing: (fatalitySmoothing: 7, r0Smoothing: 7)
+                smoothing: (fatalitySmoothing: 7, r0Smoothing: 3)
             )
 
 struct Charts: View {
     var body: some View {
         VStack {
-            Chart(data: model.estimatedR0Data, title: "Estimated R0", forceMaxValue: 4.0)
+            Chart(data: model.estimatedR0Data, title: "Estimated R0", forceMaxValue: 1.0)
                 .frame(width: 600, height: 300)
                 .background(Color.blue)
 
