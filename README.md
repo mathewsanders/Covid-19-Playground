@@ -2,22 +2,41 @@
 
 This playground is a starting point for modeling Covid-19 cases based on available data on confirmed fatalities due to Covid-19.
 
+This model is limited in estimating values in the near past, but uses the most recent estimated values for R0 to estimate to the current date and beyond.  
+
+Example:  
+* If we have data on confirmed fatalities up to April 30, and we set the incubation period as 5 days, and fatality period as 5 days, then the model will provide estimates on the number of cases up to April 20.
+* With a serial interval of 5 days, the model will provide estimates for R0 up to April 15.
+* The model will use most recent R0 estimates from April 15 to project values for confimed cases for April 21 and beyond. 
+
+
 ![Preview of chart output of covid-19 playground](preview.png)
 
-## Example usage
+## Usage
+
+The model expects a csv file in the playground resources folder with cumulative confirmed deaths for each day.
+
+The model can then be created with a range of paramaters to represent the model. These are all optional, and default values are used if custom values are not provided.
+
 ````Swift
 let model = Covid19Model(
     unreportedDeaths: 50,
     serialInterval: 5,
     incubationPeriod: 4,
     fatalityPeriod: 13,
-    fatalityRate: 10,
+    fatalityRate: 1.4,
     projectionTarget: (newCases: 0, days: 90),
+    inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yyyy"),
     smoothing: (fatalitySmoothing: 7, r0Smoothing: 3)
 )
 ````  
+The model exposes a `caseData` property that returns a dictionary with Date keys and value that contains estimated and projected values for each day.  
 
-This creates a dictionary using date as key, and contains the following struct as the value:
+````Swift
+let caseData: [Date: CaseData] = model.caseData
+````  
+
+The `CaseData` struct has following values:
 
 ````Swift
 struct CaseData: Hashable {
@@ -43,17 +62,37 @@ struct CaseData: Hashable {
 
 ## Default values 
 The following are used as default values if not provided
-- **Unreported Fatalities:** As of 4/24 NYC Department of Health are reporting 10,746 confirmed fatalities and 5,012 probable fatalities. Estmate that unreported fatalities is around 50%. Source: https://www1.nyc.gov/site/doh/covid/covid-19-data.page
-- **Serial interval:** Mean estimated as 4 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32145466
-- **Incubation period:** Mean number of days from infection to onset of symptoms 4-5 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32150748
-- **Fatality period:** mean number of days from onset of symptoms to fatality of 13 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32079150
-- **Fatality rate:** There is a much wider spread in estimates for fatality rates - although number of deaths can be reasonabily estimated, without widespread random testing it's hard to confirm how many cases lead to death. Recent random testing of 3,000 cases across NY State suggests that 20% of NYC (~1.68 million) have antibodies suggesting exposure to Covid-19. Combining with 15,758 estimated deaths leads to estimated mortality rate of 0.94% (note this is higer than Cuomo's NY State estimate of 0.5, but he is not including probable deaths. Source: https://www.governor.ny.gov/news/audio-rush-transcript-governor-cuomo-guest-msnbcs-testing-road-reopening-nicolle-wallace
 
-## Example output 
-Output is divided into two *estimated* and *projected* values.
-Estimated data uses the data on confirmed fatalties from the CSV file and variables set on the model to make estimates for R0, cumulative cases, and new cases for each day.
-Estimates are limited from the most recent confirmed number of fatalties, and estimates for incubation and fatality periods.
-Projected values use an average from recent R0 values and recent new cases to project values for future cases, either until a threshold for new cases or number of days to project (whichever comes first).
+### Unreported Fatalities
+As of 4/24 NYC Department of Health are reporting 10,746 confirmed fatalities and 5,012 probable fatalities. Estmate that unreported fatalities is around 50%. 
+Source: https://www1.nyc.gov/site/doh/covid/covid-19-data.page
+
+### Serial interval
+Mean estimated as 4 days. 
+Source: https://www.ncbi.nlm.nih.gov/pubmed/32145466
+
+### Incubation period 
+Mean number of days from infection to onset of symptoms 4-5 days. 
+Source: https://www.ncbi.nlm.nih.gov/pubmed/32150748
+
+### Fatality period
+Mean number of days from onset of symptoms to fatality of 13 days. 
+Source: https://www.ncbi.nlm.nih.gov/pubmed/32079150
+
+### Fatality rate  
+There is a much wider spread in estimates for fatality rates - although number of fatalities can be reasonabily estimated, without widespread random testing of the general population it's hard to confirm how many cases lead to death. 
+
+We currently have two studies to draw estimates from: supermarket testing, and first responder testing.
+
+Supermarket testing was performed in the week starting 4/20 when confirmed and probable deaths was 13,683. In this test 20% of NYC supermaket shoppers tested positive for Covid-19 antibodies (source: https://www.governor.ny.gov/news/audio-rush-transcript-governor-cuomo-guest-msnbcs-testing-road-reopening-nicolle-wallace). If this represents wider population of NYC this suggests 1.68 million cases and fatality rate of 0.8%. This group of people is likely biased (for example people who are more strict in their self-isolation may not have been at the supermaket when people were asked to volunteer). Note that Cuomo reported a fatality rate of 0.5% from this study, but did not include probable deaths, and only counted confirmed fatalties from hospitals and nursing homes.
+
+First-responder testing was performed in the week starting 4/27 when confirmed and probable deaths was 16,936. In this test 10-17% of first-responders tested positive for Covid-19 antibodies (source: https://twitter.com/NYGovCuomo/status/1255524216562221057). If this represents wider population of NYC this suggests 0.84 million cases and fatality rate of 2.0%. This group of people is also likely biased (for example first responders may have better access and more consistant use of PPE). 
+
+Taking the average between the two, the default value that the model uses is a fatality rate of 1.4%.
+
+## Example debug output 
+
+Running the model prints progress, errors, and interesting values in the debug output.
 
 ````
 ...Loading data on confirmed fatalities from data.csv
@@ -64,27 +103,27 @@ Projected values use an average from recent R0 values and recent new cases to pr
 ...End of estimations
 ...Sorting data by date
 ...Getting key R0 values
- - Good news! estimated R0 dropped below 1.0 on 2020-03-24 04:00:00 +0000. R0 = 0.8256494910191409 
+ - Good news! estimated R0 dropped below 1.0 on 2020-03-24 04:00:00 +0000. R0 = 0.8256786500366838 
 
 ...Getting lowest estimate for R0 based on estimated cases
- - Lowest R0 value on 2020-03-26 04:00:00 +0000. R0 = 0.6633459119496855 
+ - Lowest R0 value on 2020-03-26 04:00:00 +0000. R0 = 0.6633618032931232 
 
 ...Getting average from recent R0 estimates
- - Average R0 from 2020-04-05 04:00:00 +0000 with 3 day moving average is 0.9646211112006772 
+ - Average R0 from 2020-04-07 04:00:00 +0000 with 3 day moving average is 0.8662655171321689 
 
 ...Getting most recent date with estimated cases
- - Last date with estimated cases is 2020-04-10 04:00:00 +0000. Cumulative cases = 1600092.
+ - Last date with estimated cases is 2020-04-12 04:00:00 +0000. Cumulative cases = 1213346.
  - Will now switch to projecting future cases based on most recent R0 value until estimated number of new cases per day drops below 0 
 
 ...Projecting future cases based on most recent R0
- - Estimate that new cases will drop to 49196 per day on 2020-05-10 04:00:00 +0000
- - As of this date, estimate that cumulative cases will have reached 3176235 
+ - Estimate that new cases will drop to 21558 per day on 2020-05-12 04:00:00 +0000
+ - As of this date, estimate that cumulative cases will have reached 2061675 
 
 ...Getting estimates for today
- - as of today 2020-04-27 04:00:00 +0000
- - cumulative cases 2519197
- - new cases 52120
- - r0 0.9646211112006772
+ - as of today 2020-04-29 04:00:00 +0000
+ - cumulative cases 1749175
+ - new cases 27114
+ - r0 0.8662655171321689
 
 ...End of projections
 ...Saving case data to output.csv in your documents folder
@@ -123,8 +162,8 @@ struct Charts: View {
 PlaygroundPage.current.setLiveView(Charts())
 ````
 
-## Output
+## CSV output
 
-Running the playground also generates an `output.csv` file in your Documents folder. This contains the results of the model if needed for further post-processing. 
+Running the playground generates an `output.csv` file in your Documents folder. This contains the results of the model if needed for further post-processing. 
 
 ![Preview of csv file generated from covid-19 playground](output.csv-preview.png)

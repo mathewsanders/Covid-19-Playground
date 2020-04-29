@@ -70,7 +70,7 @@ struct Covid19Model {
          serialInterval: Int = 4,
          incubationPeriod: Int = 4,
          fatalityPeriod: Int = 13,
-         fatalityRate: Double = 1.00,
+         fatalityRate: Double = 1.4,
          projectionTarget: ProjectionTarget = (newCases: 0, days: 90),
          inputCSVInfo: InputCsvInfo = (fileName: "data", dateFormat: "MM/dd/yyyy"),
          smoothing: SmoothingFactors = (fatalitySmoothing: 7, r0Smoothing: 7)) {
@@ -361,21 +361,16 @@ struct Covid19Model {
     }
 }
 
-/**
-Create a model with estimates on variables for Covid-19
- - Unreported Fatalities: As of 4/24 NYC Department of Health are reporting 10,746 confirmed fatalities and 5,012 probable fatalities. Estmate that unreported fatalities is around 50%. Source: https://www1.nyc.gov/site/doh/covid/covid-19-data.page
- - Serial interval: Mean estimated as 4 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32145466
- - Incubation period: Mean number of days from infection to onset of symptoms 4-5 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32150748
- - Fatality period: mean number of days from onset of symptoms to fatality of 13 days. Source: https://www.ncbi.nlm.nih.gov/pubmed/32079150
- - Fatality rate: There is a much wider spread in estimates for fatality rates - although number of deaths can be reasonabily estimated, without widespread random testing it's hard to confirm how many cases lead to death. Recent random testing of 3,000 cases across NY State suggests that 20% of NYC (~1.68 million) have antibodies suggesting exposure to Covid-19. Combining with 15,758 estimated deaths leads to estimated mortality rate of 0.94% (note this is higer than Cuomo's NY State estimate of 0.5, but he is not including probable deaths. Source: https://www.governor.ny.gov/news/audio-rush-transcript-governor-cuomo-guest-msnbcs-testing-road-reopening-nicolle-wallace
-*/
+
+///Create a model with estimates on variables for Covid-19
 let model = Covid19Model(
                 unreportedFatalities: 50,
                 serialInterval: 5,
                 incubationPeriod: 4,
                 fatalityPeriod: 13,
-                fatalityRate: 1,
+                fatalityRate: 1.4,
                 projectionTarget: (newCases: 0, days: 30),
+                inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yyyy"),
                 smoothing: (fatalitySmoothing: 7, r0Smoothing: 3)
             )
 
