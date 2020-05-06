@@ -14,7 +14,7 @@ Example:
 
 ## Usage
 
-The model expects a csv file in the playground resources folder with cumulative confirmed deaths for each day.
+The model expects a csv file in the playground resources folder with cumulative confirmed and probable deaths for each day.
 
 The model can then be created with a range of paramaters to represent the model. These are all optional, and default values are used if custom values are not provided.
 
@@ -64,7 +64,7 @@ struct CaseData: Hashable {
 The following are used as default values if not provided
 
 ### Unreported Fatalities
-As of 4/24 NYC Department of Health are reporting 10,746 confirmed fatalities and 5,012 probable fatalities. Estmate that unreported fatalities is around 50%. 
+As of 4/24 NYC Department of Health are reporting 10,746 confirmed fatalities and 5,012 probable fatalities. Estmate that unreported fatalities is around 50%. This value is only used for days that the input csv does not contain a value for probable deaths.
 Source: https://www1.nyc.gov/site/doh/covid/covid-19-data.page
 
 ### Serial interval

@@ -51,12 +51,12 @@ struct Covid19Model {
      Creates a model for Covid-19 based on confimred fatalities and other variables.
      
      - Parameters:
-        - unreportedFatalities: The percentage of fatalities that are not reported  (for example NY State currently reports only confirmed cases from hospitals and nursing homes. Fatalities that occur at home, or for people with symptoms that were not tested and diagnosed are not counted as confirmed cases).
+        - unreportedFatalities: The percentage of fatalities that are not reported  (for example NY State currently reports only confirmed cases from hospitals and nursing homes. Fatalities that occur at home, or for people with symptoms that were not tested and diagnosed are not counted as confirmed cases). This value is used when the input CSV does not contain a value of probable deaths for a day
         - fatalityRate: The percentage cases that will lead to fatality.
         - incubationPeriod: The mean number of days from becoming infected to onset of symptoms.
         - serialInterval: The number of days between successive cases in a chain of transmission.
         - projectionTarget: Targets used to determine how far ahead to project estimates.
-        - inputCSVInfo: information about the csv file that contains infomration on confirmed fatalities.
+        - inputCSVInfo: information about the csv file that contains infomration on confirmed and probable deaths.
         - smoothing: information about moving average periods to apply to smooth estimates
         
      When projecting forward into the future, this value is used to determine how far in advance to project. for example setting this value to `(newCases: 0, days: 90)` will attempt to project forward to the day where the number of new cases is zero, or 90 days - which ever occurs first.
@@ -64,7 +64,9 @@ struct Covid19Model {
      
      The Playground resources folder should contain a csv file with two columns
      - First column: date of confirmed fatalties
-     - Second column: number of confirmed fatalities
+     - Second column: number of confirmed deaths
+     - Third column: number of probably deaths (optional)
+     If a value for probable deaths is not provided, then a value is cacluated using unreportedFatalities.
      */
     init(unreportedFatalities: Double = 50.0,
          serialInterval: Int = 4,
@@ -105,9 +107,11 @@ struct Covid19Model {
                 let components = line.components(separatedBy: ",")
                 if let date = dateFormatter.date(from: components[0]),
                     let confirmedFatalities = Int(components[1].trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    let unreportedFatalities = Double(confirmedFatalities) * (Double(unreportedFatalities)/100.0)
-                    let totalFatalities = Double(confirmedFatalities) + unreportedFatalities
                     
+                    let probableFatalities = Double(components[2].trimmingCharacters(in: .whitespacesAndNewlines)) ?? Double(confirmedFatalities) * (Double(unreportedFatalities)/100.0)
+                    
+                    let totalFatalities = Double(confirmedFatalities) + probableFatalities
+                                        
                     return (date, totalFatalities)
                 }
                 return nil
