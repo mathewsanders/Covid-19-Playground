@@ -70,7 +70,7 @@ struct Covid19Model {
                     return (date, totalFatalities)
                 }
                 return nil
-            }).sorted(by: { left, right in left.0 < right.0 })
+            }).sorted(by: { left, right in  left.0 < right.0 })
         
         let fatalityDates = parsedCSV.map({ return $0.0})
         let fatalityCounts = parsedCSV.map({ return $0.1})
@@ -89,16 +89,16 @@ struct Covid19Model {
         
         let estimatedCumulativeCases: [Date: Double] = estimatedFatalities.temporalMap(
             dateOffset: -(incubationPeriod + fatalityPeriod),
-            transformer: { _, _, fatalityDate, cumulativeFatalities in
+            transformer: { _ , cumulativeFatalities, infectionDate, _ in
                 let cumulativeCases = cumulativeFatalities * (100.0 / fatalityRate)
-                return(fatalityDate, cumulativeCases)
+                return(infectionDate, cumulativeCases)
             }
         )
         
         let estimatedNewCases: [Date: Double] = estimatedCumulativeCases.temporalMap(
             dateOffset: -1,
             transformer: { dateToday, cumulativeCasesToday, dateYesterday, cumulativeCasesYesterday in
-                let newCases = cumulativeCasesToday - cumulativeCasesYesterday
+                let newCases = cumulativeCasesToday - (cumulativeCasesYesterday ?? 0)
                 return (dateToday, newCases)
             }
         )
@@ -106,25 +106,25 @@ struct Covid19Model {
         self.r0 = estimatedNewCases.temporalMap(
             dateOffset: serialInterval,
             transformer: { dateToday, newCasesToday, dateFuture, newCasesFuture in
-                if newCasesToday.isZero {
+                if newCasesToday.isZero || newCasesFuture == nil {
                     return (dateToday, nil)
                 }
-                let r0 = newCasesFuture / newCasesToday
+                let r0 = newCasesFuture! / newCasesToday
                 return (dateToday, r0)
             }
         )
                 
-        let sortedR0 = r0.sorted(by: { $0.key < $1.key })
+        let sortedR0 = r0.filter({ $0.value != nil }).sorted()
         let recentR0 = sortedR0.suffix(smoothing.r0Smoothing)
         
         let averageR0 = recentR0
-                    .compactMap({ $0.value })
+            .compactMap({ $0.1 })
                         .reduce(0.0, +)
                             / Double(smoothing.r0Smoothing)
         
         print("averageR0", averageR0)
         
-        let lastDate = sortedR0.last!.key
+        let lastDate = sortedR0.last!.0
         
         let projectedDates: [Date] = (0..<projectionTarget.days).map{ offset in
             let date = lastDate.advanced(by: daysRatio * TimeInterval(offset))
@@ -139,29 +139,29 @@ struct Covid19Model {
             return cases.merging([newDate: newCases], uniquingKeysWith: { _, new in new })
         })
         
-        self.cumulatedCases = newCases.sorted(by: { $0.key < $1.key }).reduce(Dictionary<Date,Double>(), {cumulatedCases, newCases in
-            let previousDate = newCases.key.advanced(by: -daysRatio)
+        self.cumulatedCases = newCases.sorted().reduce(Dictionary<Date,Double>(), {cumulatedCases, newCases in
+            let previousDate = newCases.date.advanced(by: -daysRatio)
             let previousCumulated = cumulatedCases[previousDate] ?? 0
             let newCumulated = previousCumulated + newCases.value
-            return cumulatedCases.merging([newCases.key: newCumulated], uniquingKeysWith: { _, new in new })
+            return cumulatedCases.merging([newCases.date: newCumulated], uniquingKeysWith: { _, new in new })
         })
     }
     
     var estimatedR0Data: [(Date, Double)] {
-        return self.r0.sorted(by: { _,_ in true }).compactMap({
+        return self.r0.sorted().compactMap({
             if let value = $0.value {
-                return ($0.key, value)
+                return ($0.date, value)
             }
             return nil
         })
     }
     
     var estimatedCumulativeCasesData: [(Date, Double)] {
-        return self.cumulatedCases.sorted(by: { _,_ in true })
+        return self.cumulatedCases.sorted()
     }
     
     var estimatedNewCasesData: [(Date, Double)] {
-        return self.newCases.sorted(by: { _,_ in true })
+        return self.newCases.sorted()
     }
 }
 
@@ -172,7 +172,7 @@ let model = Covid19Model(
                 incubationPeriod: 4,
                 fatalityPeriod: 13,
                 fatalityRate: 1.4,
-                projectionTarget: (newCases: 0, days: 30),
+                projectionTarget: (newCases: 0, days: 60),
                 inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yyyy"),
                 smoothing: (fatalitySmoothing: 7, r0Smoothing: 3)
             )
