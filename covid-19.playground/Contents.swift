@@ -12,6 +12,11 @@ struct Covid19Model {
     let cumulatedCases: [Date: Double]
     let fatalities: [Date: Double]
     
+    private let dateFormatter: DateFormatter
+    
+    // number of seconds in a day
+    static let daysRatio: TimeInterval = 24*60*60
+    
     /**
      Creates a model for Covid-19 based on confimred fatalities and other variables.
      
@@ -39,7 +44,7 @@ struct Covid19Model {
          fatalityPeriod: Int = 13,
          fatalityRate: Double = 1.4,
          projectionTarget: ProjectionTarget = (newCases: 0, days: 1),
-         inputCSVInfo: InputCsvInfo = (fileName: "data", dateFormat: "MM/dd/yyyy"),
+         inputCSVInfo: InputCsvInfo = (fileName: "data", dateFormat: "MM/dd/yy"),
          smoothing: SmoothingFactors = (fatalitySmoothing: 7, r0Smoothing: 7)) {
         
         assert((0.0...100).contains(unreportedFatalities), "Percentage of unreported fatalities must be between 0 and 100%")
@@ -50,13 +55,14 @@ struct Covid19Model {
         assert((1...7).contains(smoothing.fatalitySmoothing), "Fatality smoothing must be between 1 and 7")
         assert((1...7).contains(smoothing.r0Smoothing), "R0 smoothing must be between 1 and 7")
         
-        let daysRatio: TimeInterval = 24*60*60
+        
         let fileURL = Bundle.main.url(forResource: inputCSVInfo.fileName, withExtension: "csv")!
         let content = try! String(contentsOf: fileURL, encoding: String.Encoding.utf8)
 
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX") // set locale to reliable US_POSIX
         dateFormatter.dateFormat = inputCSVInfo.dateFormat // expected date format in CSV file
+        self.dateFormatter = dateFormatter
         
         let parsedCSV: [(Date, Double)] = content.components(separatedBy: "\n")
             .compactMap({ line in
@@ -129,25 +135,25 @@ struct Covid19Model {
             .compactMap({ $0.1 })
                 .reduce(0.0, +)
                     / Double(smoothing.r0Smoothing)
-        
-        print("averageR0", averageR0)
-        
         let lastDate = sortedR0.last!.0
         
+        print("Average R0 from \(smoothing.r0Smoothing) days ending \(self.dateFormatter.string(from: lastDate))")
+        print(" - ", Double(Int(averageR0*100))/100)
+        
         let projectedDates: [Date] = (0..<projectionTarget.days).map{ offset in
-            let date = lastDate.advanced(by: daysRatio * TimeInterval(offset))
+            let date = lastDate.advanced(by: Covid19Model.daysRatio * TimeInterval(offset))
             return date
         }
         
         self.newCases = projectedDates.reduce(estimatedNewCases, { cases, newDate in
-            let previousDate = newDate.advanced(by: daysRatio * TimeInterval(-serialInterval))
+            let previousDate = newDate.advanced(by: Covid19Model.daysRatio * TimeInterval(-serialInterval))
             let previousCases = cases[previousDate] ?? 0
             let newCases = previousCases * averageR0
             return cases.merging([newDate: newCases], uniquingKeysWith: { _, new in new })
         })
         
         self.cumulatedCases = newCases.sorted().reduce(Dictionary<Date,Double>(), {cumulatedCases, newCases in
-            let previousDate = newCases.date.advanced(by: -daysRatio)
+            let previousDate = newCases.date.advanced(by: -Covid19Model.daysRatio)
             let previousCumulated = cumulatedCases[previousDate] ?? 0
             let newCumulated = previousCumulated + newCases.value
             return cumulatedCases.merging([newCases.date: newCumulated], uniquingKeysWith: { _, new in new })
@@ -168,6 +174,31 @@ struct Covid19Model {
             }
             return nil
         })
+    }
+    
+    func printSummary() {
+        if let earliestDate = self.newCases.sorted().first?.date {
+            
+            let daysBetweenEarliestDateAndToday = (earliestDate
+                .distance(to: Date())/Covid19Model.daysRatio)
+                    .rounded(.down) * Covid19Model.daysRatio
+            
+            let dateToday = earliestDate.addingTimeInterval(daysBetweenEarliestDateAndToday)
+            
+            print("Estimated values for today \(dateFormatter.string(from: dateToday))")
+            
+            if let fatalitiesToday = self.fatalities[dateToday] {
+                print(" - fatalities:", Int(fatalitiesToday))
+            }
+            
+            if let newCasesToday = self.newCases[dateToday] {
+                print(" - new cases:", Int(newCasesToday))
+            }
+            
+            if let cumulativeCasesToday = self.cumulatedCases[dateToday] {
+                print(" - cumulative cases:", Int(cumulativeCasesToday))
+            }
+        }
     }
     
     func saveOutput() {
@@ -219,11 +250,12 @@ let model = Covid19Model(
                 fatalityPeriod: 13,
                 fatalityRate: 1.4,
                 projectionTarget: (newCases: 0, days: 90),
-                inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yyyy"),
-                smoothing: (fatalitySmoothing: 7, r0Smoothing: 1)
+                inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yy"),
+                smoothing: (fatalitySmoothing: 7, r0Smoothing: 2)
             )
 
-model.saveOutput()
+//model.saveOutput()
+model.printSummary()
 
 struct Charts: View {
     var body: some View {
