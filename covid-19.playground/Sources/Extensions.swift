@@ -45,6 +45,10 @@ public extension Dictionary where Key == Date {
         self.sorted(by: { $0.key < $1.key })
             .map{ (date: $0.0, value: $0.1) }
     }
+    
+    func temporalMerge<T,U>(other: [Date: T], merger: ValueMerger<Value,T,U>) -> [Date: U] {
+        return temporalMerger(first: self, second: other, merger: merger)
+    }
 }
 
 /// merges two dictionarys with date keys and merging closure

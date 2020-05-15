@@ -169,6 +169,46 @@ struct Covid19Model {
             return nil
         })
     }
+    
+    func saveOutput() {
+        print("...Saving case data to output.csv in your documents folder")
+        
+        let fileName = "output"
+        let dir = try? FileManager.default.url(for: .documentDirectory,
+              in: .userDomainMask, appropriateFor: nil, create: true)
+        
+        let merged = self.newCases.temporalMerge(other: self.cumulatedCases, merger: { new, cumulative in
+            (new: new, cumulative: cumulative)
+        })
+        .temporalMerge(other: self.r0, merger: { cases, r0 in
+            (new: cases?.new, cumulative: cases?.cumulative, r0: r0)
+        })
+        .temporalMerge(other: self.fatalities, merger: { cases, fatalities in
+            (new: cases?.new, cumulative: cases?.cumulative, r0: cases?.r0, fatalities: fatalities)
+        })
+        let sorted = merged.sorted()
+        
+        // If the directory was found, we write a file to it and read it back
+        if let fileURL = dir?.appendingPathComponent(fileName).appendingPathExtension("csv") {
+            
+            let outString = sorted.reduce("Date, Estimated New Cases, Estimated Cumulative Cases, Estimated Estimated R0, Estimated Fatalities\n") { text, item in
+                let components: [String] = [
+                    item.date.description,
+                    item.value.new?.description ?? "",
+                    item.value.cumulative?.description ?? "",
+                    item.value.r0??.description ?? "",
+                    item.value.fatalities?.description ?? ""
+                ]
+                return text + components.joined(separator: ",") + "\n"
+            }
+            
+            do {
+                try outString.write(to: fileURL, atomically: true, encoding: .utf8)
+            } catch {
+                print("Failed writing to URL: \(fileURL), Error: " + error.localizedDescription)
+            }
+        }
+    }
 }
 
 ///Create a model with estimates on variables for Covid-19
@@ -182,6 +222,8 @@ let model = Covid19Model(
                 inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yyyy"),
                 smoothing: (fatalitySmoothing: 7, r0Smoothing: 1)
             )
+
+model.saveOutput()
 
 struct Charts: View {
     var body: some View {
