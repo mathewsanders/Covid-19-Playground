@@ -120,8 +120,8 @@ struct Covid19Model {
         
         let averageR0 = recentR0
             .compactMap({ $0.1 })
-                        .reduce(0.0, +)
-                            / Double(smoothing.r0Smoothing)
+                .reduce(0.0, +)
+                    / Double(smoothing.r0Smoothing)
         
         print("averageR0", averageR0)
         
@@ -133,7 +133,6 @@ struct Covid19Model {
         }
         
         self.newCases = projectedDates.reduce(estimatedNewCases, { cases, newDate in
-            
             let previousDate = newDate.advanced(by: daysRatio * TimeInterval(-serialInterval))
             let previousCases = cases[previousDate] ?? 0
             let newCases = previousCases * averageR0
@@ -182,23 +181,23 @@ struct Charts: View {
         VStack {
             Chart(data: model.estimatedR0Data,
                   title: "R0", forceMaxValue: 1.0)
-                .frame(width: 600, height: 300)
+                .frame(width: 600, height: 250)
                 .background(Color.blue)
 
             Chart(data: model.cumulatedCases.sorted(),
                   title: "Cumulative Cases")
-                .frame(width: 600, height: 300)
+                .frame(width: 600, height: 250)
                 .background(Color.yellow)
-
-            Chart(data: model.newCases.sorted(),
-                  title: "New Cases")
-                .frame(width: 600, height: 300)
-                .background(Color.green)
             
             Chart(data: model.fatalities.sorted(),
-                  title: "Fatalities", forceMaxValue: 200.0)
-                .frame(width: 600, height: 300)
+                  title: "Fatalities", forceMaxValue: 100.0)
+                .frame(width: 600, height: 250)
                 .background(Color.gray)
+            
+            Chart(data: model.newCases.sorted(),
+                  title: "New Cases", forceMaxValue: 1000.0)
+                .frame(width: 600, height: 250)
+                .background(Color.green)
         }
     }
 }
