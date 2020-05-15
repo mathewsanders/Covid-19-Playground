@@ -3,13 +3,12 @@ import PlaygroundSupport
 
 struct Covid19Model {
     
-    typealias ProjectionTarget = (newCases: Int, days: Int)
     typealias InputCsvInfo = (fileName: String, dateFormat: String)
-    typealias SmoothingFactors = (fatalitySmoothing: Int, r0Smoothing: Int)
+    typealias SmoothingFactors = (inputSmoothing: Int, inputDrop: Int,  r0Smoothing: Int)
 
     let r0: [Date: Double?]
     let newCases: [Date: Double]
-    let cumulatedCases: [Date: Double]
+    let cumulativeCases: [Date: Double]
     let fatalities: [Date: Double]
     
     private let dateFormatter: DateFormatter
@@ -25,17 +24,14 @@ struct Covid19Model {
         - fatalityRate: The percentage cases that will lead to fatality.
         - incubationPeriod: The mean number of days from becoming infected to onset of symptoms.
         - serialInterval: The number of days between successive cases in a chain of transmission.
-        - projectionTarget: Targets used to determine how far ahead to project estimates.
+        - projectionTarget: The number of days to project forward using most recent R0 values.
         - inputCSVInfo: information about the csv file that contains infomration on confirmed and probable deaths.
         - smoothing: information about moving average periods to apply to smooth estimates
-        
-     When projecting forward into the future, this value is used to determine how far in advance to project. for example setting this value to `(newCases: 0, days: 90)` will attempt to project forward to the day where the number of new cases is zero, or 90 days - which ever occurs first.
-     Note: If recent average for R0 is not less than 1, then the target for new cases will never be met because new cases will continue to increase.
      
      The Playground resources folder should contain a csv file with two columns
-     - First column: date of confirmed fatalties
+     - First column: date of death
      - Second column: number of confirmed deaths
-     - Third column: number of probably deaths (optional)
+     - Third column: number of probable deaths (optional)
      If a value for probable deaths is not provided, then a value is cacluated using unreportedFatalities.
      */
     init(unreportedFatalities: Double = 50.0,
@@ -43,18 +39,17 @@ struct Covid19Model {
          incubationPeriod: Int = 4,
          fatalityPeriod: Int = 13,
          fatalityRate: Double = 1.4,
-         projectionTarget: ProjectionTarget = (newCases: 0, days: 1),
+         projectionTarget: Int = 30,
          inputCSVInfo: InputCsvInfo = (fileName: "data", dateFormat: "MM/dd/yy"),
-         smoothing: SmoothingFactors = (fatalitySmoothing: 7, r0Smoothing: 7)) {
+         smoothing: SmoothingFactors = (inputSmoothing: 7, inputDrop: 5, r0Smoothing: 7)) {
         
         assert((0.0...100).contains(unreportedFatalities), "Percentage of unreported fatalities must be between 0 and 100%")
         assert((1...30).contains(incubationPeriod), "Incubation period must be beween 1 and 30 days")
         assert((1...30).contains(fatalityPeriod), "Fatality period must be beween 1 and 30 days")
         assert((0.1...10).contains(fatalityRate), "Fatality rate must be beween 0.1 and 10")
-        assert(projectionTarget.newCases >= 0, "target for new cases must be 0 or above")
-        assert((1...7).contains(smoothing.fatalitySmoothing), "Fatality smoothing must be between 1 and 7")
+        assert(projectionTarget >= 0, "Number of days to project model forward must be 0 or above")
+        assert((1...7).contains(smoothing.inputSmoothing), "Input smoothing must be between 1 and 7")
         assert((1...7).contains(smoothing.r0Smoothing), "R0 smoothing must be between 1 and 7")
-        
         
         let fileURL = Bundle.main.url(forResource: inputCSVInfo.fileName, withExtension: "csv")!
         let content = try! String(contentsOf: fileURL, encoding: String.Encoding.utf8)
@@ -77,7 +72,7 @@ struct Covid19Model {
                     return (date, totalFatalities)
                 }
                 return nil
-            }).dropLast(5)
+            }).dropLast(smoothing.inputDrop)
         
         let cumulativeFatalities = parsedCSV.reduce(Array<(Date, Double)>(), { cumulativeFatalities, newFatalities in
             if let previousDay = cumulativeFatalities.last {
@@ -90,7 +85,7 @@ struct Covid19Model {
         let fatalityCounts = cumulativeFatalities.map({ return $0.1})
         
         let fatalitiesMovingAverages = fatalityCounts.indices.map({ index -> Double in
-            let possibleMinOffset = index-(smoothing.fatalitySmoothing-1)
+            let possibleMinOffset = index-(smoothing.inputSmoothing-1)
             let minRange = possibleMinOffset < 0 ? 0 : possibleMinOffset
             let range = (minRange...index)
             let slice = fatalityCounts[range]
@@ -140,7 +135,7 @@ struct Covid19Model {
         print("Average R0 from \(smoothing.r0Smoothing) days ending \(self.dateFormatter.string(from: lastDate))")
         print(" - ", Double(Int(averageR0*100))/100)
         
-        let projectedDates: [Date] = (0..<projectionTarget.days).map{ offset in
+        let projectedDates: [Date] = (0..<projectionTarget).map{ offset in
             let date = lastDate.advanced(by: Covid19Model.daysRatio * TimeInterval(offset))
             return date
         }
@@ -152,7 +147,7 @@ struct Covid19Model {
             return cases.merging([newDate: newCases], uniquingKeysWith: { _, new in new })
         })
         
-        self.cumulatedCases = newCases.sorted().reduce(Dictionary<Date,Double>(), {cumulatedCases, newCases in
+        self.cumulativeCases = newCases.sorted().reduce(Dictionary<Date,Double>(), {cumulatedCases, newCases in
             let previousDate = newCases.date.advanced(by: -Covid19Model.daysRatio)
             let previousCumulated = cumulatedCases[previousDate] ?? 0
             let newCumulated = previousCumulated + newCases.value
@@ -195,7 +190,7 @@ struct Covid19Model {
                 print(" - new cases:", Int(newCasesToday))
             }
             
-            if let cumulativeCasesToday = self.cumulatedCases[dateToday] {
+            if let cumulativeCasesToday = self.cumulativeCases[dateToday] {
                 print(" - cumulative cases:", Int(cumulativeCasesToday))
             }
         }
@@ -208,7 +203,7 @@ struct Covid19Model {
         let dir = try? FileManager.default.url(for: .documentDirectory,
               in: .userDomainMask, appropriateFor: nil, create: true)
         
-        let merged = self.newCases.temporalMerge(other: self.cumulatedCases, merger: { new, cumulative in
+        let merged = self.newCases.temporalMerge(other: self.cumulativeCases, merger: { new, cumulative in
             (new: new, cumulative: cumulative)
         })
         .temporalMerge(other: self.r0, merger: { cases, r0 in
@@ -249,13 +244,13 @@ let model = Covid19Model(
                 incubationPeriod: 4,
                 fatalityPeriod: 13,
                 fatalityRate: 1.4,
-                projectionTarget: (newCases: 0, days: 90),
+                projectionTarget: 90,
                 inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yy"),
-                smoothing: (fatalitySmoothing: 7, r0Smoothing: 2)
+                smoothing: (inputSmoothing: 7, inputDrop: 5, r0Smoothing: 2)
             )
 
-//model.saveOutput()
 model.printSummary()
+model.saveOutput()
 
 struct Charts: View {
     var body: some View {
@@ -265,7 +260,7 @@ struct Charts: View {
                 .frame(width: 600, height: 250)
                 .background(Color.blue)
 
-            Chart(data: model.cumulatedCases.sorted(),
+            Chart(data: model.cumulativeCases.sorted(),
                   title: "Cumulative Cases")
                 .frame(width: 600, height: 250)
                 .background(Color.yellow)
