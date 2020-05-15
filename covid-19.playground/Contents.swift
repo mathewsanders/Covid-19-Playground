@@ -71,10 +71,17 @@ struct Covid19Model {
                     return (date, totalFatalities)
                 }
                 return nil
-            }).sorted(by: { left, right in  left.0 < right.0 })
+            }).dropLast(5)
         
-        let fatalityDates = parsedCSV.map({ return $0.0})
-        let fatalityCounts = parsedCSV.map({ return $0.1})
+        let cumulativeFatalities = parsedCSV.reduce(Array<(Date, Double)>(), { cumulativeFatalities, newFatalities in
+            if let previousDay = cumulativeFatalities.last {
+                return cumulativeFatalities + [(newFatalities.0, newFatalities.1 + previousDay.1)]
+            }
+            return [newFatalities]
+        })
+        
+        let fatalityDates = cumulativeFatalities.map({ return $0.0})
+        let fatalityCounts = cumulativeFatalities.map({ return $0.1})
         
         let fatalitiesMovingAverages = fatalityCounts.indices.map({ index -> Double in
             let possibleMinOffset = index-(smoothing.fatalitySmoothing-1)
@@ -171,9 +178,9 @@ let model = Covid19Model(
                 incubationPeriod: 4,
                 fatalityPeriod: 13,
                 fatalityRate: 1.4,
-                projectionTarget: (newCases: 0, days: 60),
+                projectionTarget: (newCases: 0, days: 90),
                 inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yyyy"),
-                smoothing: (fatalitySmoothing: 7, r0Smoothing: 3)
+                smoothing: (fatalitySmoothing: 7, r0Smoothing: 1)
             )
 
 struct Charts: View {
@@ -190,12 +197,12 @@ struct Charts: View {
                 .background(Color.yellow)
             
             Chart(data: model.fatalities.sorted(),
-                  title: "Fatalities", forceMaxValue: 100.0)
+                  title: "Fatalities", forceMaxValue: 10)
                 .frame(width: 600, height: 250)
                 .background(Color.gray)
             
             Chart(data: model.newCases.sorted(),
-                  title: "New Cases", forceMaxValue: 1000.0)
+                  title: "New Cases", forceMaxValue: 1000)
                 .frame(width: 600, height: 250)
                 .background(Color.green)
         }
