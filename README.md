@@ -20,44 +20,23 @@ The model can then be created with a range of paramaters to represent the model.
 
 ````Swift
 let model = Covid19Model(
-    unreportedDeaths: 50,
-    serialInterval: 5,
+    unreportedFatalities: 50,
+    serialInterval: 4,
     incubationPeriod: 4,
     fatalityPeriod: 13,
     fatalityRate: 1.4,
-    projectionTarget: (newCases: 0, days: 90),
-    inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yyyy"),
-    smoothing: (fatalitySmoothing: 7, r0Smoothing: 3)
+    projectionTarget: 90,
+    inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yy"),
+    smoothing: (inputSmoothing: 7, inputDrop: 5, r0Smoothing: 2)
 )
 ````  
-The model exposes a `caseData` property that returns a dictionary with Date keys and value that contains estimated and projected values for each day.  
+The model exposes a number of properties that returns a dictionary with Date keys and value that contains estimated and projected values for each day.  
 
 ````Swift
-let caseData: [Date: CaseData] = model.caseData
-````  
-
-The `CaseData` struct has following values:
-
-````Swift
-struct CaseData: Hashable {
-    /// Cumulative number of cases estimated by confirmed fatalities and fatality rate
-    let estimatedCumulativeCases: Int?
-    
-    /// New cases estimated by confirmed fatalities and fatality rate
-    let estimatedNewCases: Int?
-    
-    /// R0 estimated by estimate of new cases and serial interval
-    let estimatedR0: Double?
-    
-    /// Cumulative number of cases estimated by using most recent R0 values
-    let projectedCumulativeCases: Int?
-    
-    /// New cases estimated by projected by using most recent R0 values
-    let projectedNewCases: Int?
-    
-    /// R0 estimated by average of recent R0 values
-    let projectedR0: Double?
-}
+model.r0 // [Date: Double?] estimated R0 for each day
+model.newCases: // [Date: Double] estimated new cases for each day
+model.cumulativeCases: // [Date: Double] estimated cumulative cases as of each day
+model.fatalities: // [Date: Double] estimated new fatalties for each day
 ````  
 
 ## Default values 
@@ -72,7 +51,7 @@ Mean estimated as 4 days.
 Source: https://www.ncbi.nlm.nih.gov/pubmed/32145466
 
 ### Incubation period 
-Mean number of days from infection to onset of symptoms 4-5 days. 
+Mean number of days from infection to onset of symptoms 4 days. 
 Source: https://www.ncbi.nlm.nih.gov/pubmed/32150748
 
 ### Fatality period
@@ -90,43 +69,27 @@ First-responder testing was performed in the week starting 4/27 when confirmed a
 
 Taking the average between the two, the default value that the model uses is a fatality rate of 1.4%.
 
+### Smoothing 
+By default the following smoothing factors are applied: `(inputSmoothing: 7, inputDrop: 5, r0Smoothing: 2)`
+* Input smoothing applies a moving average smoothing on the input values. There seems to be weekly spikes (weekdays vs weekends) in the number of deaths that are reported. Smoothing to 7 averages out values over the last 7 days.
+* Input drop indicates the number of days of records to drop. NYC department of heath a consistantly updating historic data, and at the moment, the most recent 5 days of values tend to be under reported and so leads to very optimistic R0 estimates.
+* R0 smoothing determines how many days of recent R0 estimates should be used when projecting values forward.
+
 ## Example debug output 
 
 Running the model prints progress, errors, and interesting values in the debug output.
 
 ````
-...Loading data on confirmed fatalities from data.csv
-...Smoothing fatality data with moving average of 7 days
-...Calculating the estimated number of cases based on confirmed fatalities, incubation period, fatality period, and fatality rate
-...Calculating the number of new cases for each date
-...Calculating R0 for each date based on new cases for date, and new cases on future date based on serial interval
-...End of estimations
-...Sorting data by date
-...Getting key R0 values
- - Good news! estimated R0 dropped below 1.0 on 2020-03-24 04:00:00 +0000. R0 = 0.8256786500366838 
+// default output displays latest R0 estimates 
+Average R0 from 2 days ending 04/18/20
+-  0.73
 
-...Getting lowest estimate for R0 based on estimated cases
- - Lowest R0 value on 2020-03-26 04:00:00 +0000. R0 = 0.6633618032931232 
-
-...Getting average from recent R0 estimates
- - Average R0 from 2020-04-07 04:00:00 +0000 with 3 day moving average is 0.8662655171321689 
-
-...Getting most recent date with estimated cases
- - Last date with estimated cases is 2020-04-12 04:00:00 +0000. Cumulative cases = 1213346.
- - Will now switch to projecting future cases based on most recent R0 value until estimated number of new cases per day drops below 0 
-
-...Projecting future cases based on most recent R0
- - Estimate that new cases will drop to 21558 per day on 2020-05-12 04:00:00 +0000
- - As of this date, estimate that cumulative cases will have reached 2061675 
-
-...Getting estimates for today
- - as of today 2020-04-29 04:00:00 +0000
- - cumulative cases 1749175
- - new cases 27114
- - r0 0.8662655171321689
-
-...End of projections
-...Saving case data to output.csv in your documents folder
+// calling model.printSummary() prints estimates for today
+Estimated values for today 05/15/20
+ - fatalities: 95
+ - new cases: 1821
+ - cumulative cases: 1506202
+ 
 ````
 
 ## Charting
@@ -136,24 +99,24 @@ A very bare-bones `ChartView.swift` is included in the sources folder to display
 struct Charts: View {
     var body: some View {
         VStack {
-            Chart(data: model.estimatedR0Data, title: "Estimated R0", forceMaxValue: 2.0)
-                .frame(width: 600, height: 300)
+            Chart(data: model.estimatedR0Data,
+                  title: "R0", forceMaxValue: 1.0)
+                .frame(width: 600, height: 250)
                 .background(Color.blue)
 
-            Chart(data: model.estimatedCumulativeCasesData, title: "Estimated Cumulative Cases")
-                .frame(width: 600, height: 300)
+            Chart(data: model.cumulativeCases.sorted(),
+                  title: "Cumulative Cases")
+                .frame(width: 600, height: 250)
                 .background(Color.yellow)
-
-            Chart(data: model.projectedCumulativeCasesData, title: "Projected Cumulative Cases")
-                .frame(width: 600, height: 300)
-                .background(Color.yellow)
-
-            Chart(data: model.estimatedNewCasesData, title: "Estimated New Cases")
-                .frame(width: 600, height: 300)
-                .background(Color.green)
-
-            Chart(data: model.projectedNewCasesData, title: "Projected New Cases")
-                .frame(width: 600, height: 300)
+            
+            Chart(data: model.fatalities.sorted(),
+                  title: "Fatalities", forceMaxValue: 10)
+                .frame(width: 600, height: 250)
+                .background(Color.gray)
+            
+            Chart(data: model.newCases.sorted(),
+                  title: "New Cases", forceMaxValue: 1000)
+                .frame(width: 600, height: 250)
                 .background(Color.green)
         }
     }
@@ -164,6 +127,6 @@ PlaygroundPage.current.setLiveView(Charts())
 
 ## CSV output
 
-Running the playground generates an `output.csv` file in your Documents folder. This contains the results of the model if needed for further post-processing. 
+Calling the `saveOutput()` function on the model generates an `output.csv` file in your Documents folder. This contains the results of the model if needed for further post-processing. 
 
 ![Preview of csv file generated from covid-19 playground](output.csv-preview.png)

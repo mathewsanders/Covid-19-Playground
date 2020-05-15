@@ -45,6 +45,9 @@ protocol ChartLayout {
 
 extension ChartLayout {
     func getYPos(forValue value: Double, withHeight height: CGFloat) -> CGFloat {
+        if !value.isFinite {
+            return 0
+        }
         let offset: CGFloat = 30
         let tempHeight = height - offset
         return (tempHeight - CGFloat(value/self.maxValue) * tempHeight)
@@ -220,5 +223,6 @@ public struct Chart: View {
             }
         }
         .padding(EdgeInsets(top: 15, leading: 30, bottom: 10, trailing: 30))
+        .clipped()
     }
 }
