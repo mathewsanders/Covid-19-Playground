@@ -10,6 +10,7 @@ struct Covid19Model {
     let r0: [Date: Double?]
     let newCases: [Date: Double]
     let cumulatedCases: [Date: Double]
+    let fatalities: [Date: Double]
     
     /**
      Creates a model for Covid-19 based on confimred fatalities and other variables.
@@ -145,6 +146,13 @@ struct Covid19Model {
             let newCumulated = previousCumulated + newCases.value
             return cumulatedCases.merging([newCases.date: newCumulated], uniquingKeysWith: { _, new in new })
         })
+        
+        self.fatalities = self.newCases.temporalMap(
+            dateOffset: incubationPeriod + fatalityPeriod,
+            transformer: { _, newCases, fatalityDate, _ in
+                let estimatedFatalities = newCases * (fatalityRate/100)
+                return (fatalityDate, estimatedFatalities)
+        })
     }
     
     var estimatedR0Data: [(Date, Double)] {
@@ -154,14 +162,6 @@ struct Covid19Model {
             }
             return nil
         })
-    }
-    
-    var estimatedCumulativeCasesData: [(Date, Double)] {
-        return self.cumulatedCases.sorted()
-    }
-    
-    var estimatedNewCasesData: [(Date, Double)] {
-        return self.newCases.sorted()
     }
 }
 
@@ -180,17 +180,25 @@ let model = Covid19Model(
 struct Charts: View {
     var body: some View {
         VStack {
-            Chart(data: model.estimatedR0Data, title: "R0", forceMaxValue: 1.0)
+            Chart(data: model.estimatedR0Data,
+                  title: "R0", forceMaxValue: 1.0)
                 .frame(width: 600, height: 300)
                 .background(Color.blue)
 
-            Chart(data: model.estimatedCumulativeCasesData, title: "Cumulative Cases")
+            Chart(data: model.cumulatedCases.sorted(),
+                  title: "Cumulative Cases")
                 .frame(width: 600, height: 300)
                 .background(Color.yellow)
 
-            Chart(data: model.estimatedNewCasesData, title: "New Cases")
+            Chart(data: model.newCases.sorted(),
+                  title: "New Cases")
                 .frame(width: 600, height: 300)
                 .background(Color.green)
+            
+            Chart(data: model.fatalities.sorted(),
+                  title: "Fatalities", forceMaxValue: 200.0)
+                .frame(width: 600, height: 300)
+                .background(Color.gray)
         }
     }
 }

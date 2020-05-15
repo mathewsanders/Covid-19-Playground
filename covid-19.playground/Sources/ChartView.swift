@@ -223,5 +223,6 @@ public struct Chart: View {
             }
         }
         .padding(EdgeInsets(top: 15, leading: 30, bottom: 10, trailing: 30))
+        .clipped()
     }
 }
