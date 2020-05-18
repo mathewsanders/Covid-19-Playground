@@ -67,19 +67,6 @@ public func temporalMerger<T,U,V>(first:[Date: T], second: [Date: U], merger: Va
     )
 }
 
-public func doubleDoubleMerger(first: Double?, second: Double?) -> Double {
-    switch (first, second) {
-    case (let first?, let second?):
-        return (first + second) / 2
-    case (let first?, _):
-        return first
-    case (_, let second?):
-        return second
-    default:
-        return 0
-    }
-}
-
 func rotate<U>(input: [[U]]) -> [[U?]] {
     if let longest = input.map({ return $0.count }).max() {
         return (0..<longest).map{ i -> [U?] in
