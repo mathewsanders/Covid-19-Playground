@@ -202,32 +202,34 @@ struct Covid19Model {
         })
     }
     
-    func printSummary() {
-        if let earliestDate = self.projectedNewCases.sorted().first?.date {
+    func printSummaryForToday() {
+        
+        let todayDate = Date()
             
-            let daysBetweenEarliestDateAndToday = (earliestDate
-                .distance(to: Date())/Covid19Model.daysRatio)
-                    .rounded(.down) * Covid19Model.daysRatio
+        print("Estimated values for today \(dateFormatter.string(from: todayDate))")
             
-            let dateToday = earliestDate.addingTimeInterval(daysBetweenEarliestDateAndToday)
-            
-            print("Estimated values for today \(dateFormatter.string(from: dateToday))")
-            
-            if let fatalitiesToday = self.projectedFatalities[dateToday] {
-                print(" - fatalities:", Int(fatalitiesToday))
-            }
-            
-            if let newCasesToday = self.projectedNewCases[dateToday] {
-                print(" - new cases:", Int(newCasesToday))
-            }
-            
-            if let cumulativeCasesToday = self.projectedCumulativeCases[dateToday] {
-                print(" - cumulative cases:", Int(cumulativeCasesToday))
-            }
-            
-            if let newHospitalizations = self.projectedHospitalizations[dateToday] {
-                print(" - new hospitalizations:", Int(newHospitalizations))
-            }
+        if let fatalitiesToday = self.projectedFatalities.sorted().last(where: { item in
+            item.0 < todayDate
+        }) {
+            print(" - fatalities:", Int(fatalitiesToday.value))
+        }
+        
+        if let newHospitalizations = self.projectedHospitalizations.sorted().last(where: { item in
+            item.0 < todayDate
+        }) {
+            print(" - new hospitalizations:", Int(newHospitalizations.value))
+        }
+        
+        if let newCasesToday = self.projectedNewCases.sorted().last(where: { item in
+            item.0 < todayDate
+        }) {
+            print(" - new cases:", Int(newCasesToday.value))
+        }
+        
+        if let cumulativeCasesToday = self.projectedCumulativeCases.sorted().last(where: { item in
+            item.0 < todayDate
+        }) {
+            print(" - cumulative cases:", Int(cumulativeCasesToday.value))
         }
     }
     
@@ -292,17 +294,22 @@ let model = Covid19Model(
                     rate: 1.4, // percentage of cases that result in death
                     period: 13 // mean number of days from onset of symptoms to death
                 ),
-                projectionDays: 90,
+                projectionDays: 40,
                 projectionR0Average: 7
             )
 
-model.printSummary()
+model.printSummaryForToday()
 //model.saveOutput()
 
 let today = Date()
+let earlyDate = Date(timeIntervalSince1970: 1583024400)
 
 func isAfterToday(date: Date, value: Double) -> Bool {
     return date >= today
+}
+
+func ignoreEarlyValues(date: Date, value: Double) -> Bool {
+    return date >= earlyDate
 }
 
 struct Charts: View {
@@ -317,15 +324,15 @@ struct Charts: View {
                 .frame(width: 600, height: 250)
                 .background(Color.yellow.opacity(0.5))
             
-            Chart(data: model.estimatedR0ByFatalityRate.sorted(), title: "Estimated R0 By Fatality Rate", forceMaxValue: 1.0)
+            Chart(data: model.estimatedR0ByFatalityRate.sorted().filter(ignoreEarlyValues), title: "Estimated R0 By Fatality Rate")
                 .frame(width: 600, height: 250)
                 .background(Color.blue.opacity(0.5))
             
-            Chart(data: model.estimatedR0ByHospitalizationsRate.sorted(), title: "Estimated R0 By Hospitalization Rate", forceMaxValue: 1.0)
+            Chart(data: model.estimatedR0ByHospitalizationsRate.sorted().filter(ignoreEarlyValues), title: "Estimated R0 By Hospitalization Rate")
                 .frame(width: 600, height: 250)
                 .background(Color.blue.opacity(0.5))
             
-            Chart(data: model.r0.movingAverage(period: 7).sorted(), title: "Estimated R0", forceMaxValue: 1.0)
+            Chart(data: model.r0.movingAverage(period: 7).sorted().filter(ignoreEarlyValues), title: "Estimated R0", forceMaxValue: 1.0)
                 .frame(width: 600, height: 250)
                 .background(Color.blue)
             
@@ -333,15 +340,15 @@ struct Charts: View {
                .frame(width: 600, height: 250)
                .background(Color.yellow)
             
-            Chart(data: Array(model.projectedNewCases.movingAverage(period: 7).sorted().filter(isAfterToday).prefix(60)), title: "Projected New Cases - next 60 days")
+            Chart(data: Array(model.projectedNewCases.movingAverage(period: 7).sorted().filter(isAfterToday).prefix(30)), title: "Projected New Cases - next 30 days")
               .frame(width: 600, height: 250)
               .background(Color.yellow)
             
-            Chart(data: Array(model.projectedFatalities.movingAverage(period: 7).sorted().filter(isAfterToday).prefix(60)), title: "Projected Fatalities - next 60 days")
+            Chart(data: Array(model.projectedFatalities.movingAverage(period: 7).sorted().filter(isAfterToday).prefix(30)), title: "Projected Fatalities - next 30 days")
                 .frame(width: 600, height: 250)
                 .background(Color.gray)
             
-            Chart(data: Array(model.projectedHospitalizations.sorted().filter(isAfterToday).prefix(60)), title: "Projected Hospitalizations - next 60 days")
+            Chart(data: Array(model.projectedHospitalizations.sorted().filter(isAfterToday).prefix(30)), title: "Projected Hospitalizations - next 30 days")
                 .frame(width: 600, height: 250)
                 .background(Color.green)
     
