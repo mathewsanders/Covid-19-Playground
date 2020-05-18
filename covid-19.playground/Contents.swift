@@ -28,6 +28,7 @@ struct Covid19Model {
     
     let fatalityParamaters: Paramaters
     let hospitalizationParamaters: Paramaters
+
     
     private let dateFormatter: DateFormatter
     
@@ -158,6 +159,7 @@ struct Covid19Model {
         }
         
         self.projectedNewCases = projectedDates.reduce(estimatedNewCasesByAverage, { cases, newDate in
+
             let previousDate = newDate.advanced(by: Covid19Model.daysRatio * TimeInterval(-serialInterval))
             let previousCases = cases[previousDate] ?? 0
             let newCases = previousCases * averageR0
@@ -177,6 +179,7 @@ struct Covid19Model {
         })
         
         self.projectedCumulativeCases = projectedNewCases.sorted().reduce(Dictionary<Date,Double>(), {cumulatedCases, newCases in
+
             let previousDate = newCases.date.advanced(by: -Covid19Model.daysRatio)
             let previousCumulated = cumulatedCases[previousDate] ?? 0
             let newCumulated = previousCumulated + newCases.value

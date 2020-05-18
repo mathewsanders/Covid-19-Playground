@@ -18,8 +18,10 @@ public extension Optional where Wrapped == Int {
 
 public typealias DateTransformer = (Date) -> Date
 public typealias ValueTransformer<T,U> = (T) -> U
+
 public typealias DateValueTransformer<T,U> = (Date,T,Date,T?) -> (Date,U)?
 public typealias TemporalMap<T,U> = (Date, T) -> (Date, U)?
+
 public typealias ValueMerger<T,U,V> = (T?, U?) -> V
 
 public extension Dictionary where Key == Date {

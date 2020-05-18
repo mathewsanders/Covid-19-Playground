@@ -42,6 +42,7 @@ let model = Covid19Model(
                 projectionDays: 51,
                 projectionR0Average: 7
             )
+
 ````  
 The model exposes a number of properties that returns a dictionary with Date keys and value that contains estimated and projected values for each day.  
 
@@ -80,6 +81,12 @@ Supermarket testing was performed in the week starting 4/20 when confirmed and p
 First-responder testing was performed in the week starting 4/27 when confirmed and probable deaths was 16,936. In this test 10-17% of first-responders tested positive for Covid-19 antibodies (source: https://twitter.com/NYGovCuomo/status/1255524216562221057). If this represents wider population of NYC this suggests 0.84 million cases and fatality rate of 2.0%. This group of people is also likely biased (for example first responders may have better access and more consistant use of PPE). 
 
 Taking the average between the two, the default value that the model uses is a fatality rate of 1.4%.
+
+### Smoothing 
+By default the following smoothing factors are applied: `(inputSmoothing: 7, inputDrop: 5, r0Smoothing: 2)`
+* Input smoothing applies a moving average smoothing on the input values. There seems to be weekly spikes (weekdays vs weekends) in the number of deaths that are reported. Smoothing to 7 averages out values over the last 7 days.
+* Input drop indicates the number of days of records to drop. NYC department of heath a consistantly updating historic data, and at the moment, the most recent 5 days of values tend to be under reported and so leads to very optimistic R0 estimates.
+* R0 smoothing determines how many days of recent R0 estimates should be used when projecting values forward.
 
 ## Example debug output 
 
