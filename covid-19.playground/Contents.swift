@@ -55,24 +55,6 @@ struct Covid19Model {
         }
     }
     
-    /**
-     Creates a model for Covid-19 based on confimred fatalities and other variables.
-     
-     - Parameters:
-        - unreportedFatalities: The percentage of fatalities that are not reported  (for example NY State currently reports only confirmed cases from hospitals and nursing homes. Fatalities that occur at home, or for people with symptoms that were not tested and diagnosed are not counted as confirmed cases). This value is used when the input CSV does not contain a value of probable deaths for a day
-        - fatalityRate: The percentage cases that will lead to fatality.
-        - incubationPeriod: The mean number of days from becoming infected to onset of symptoms.
-        - serialInterval: The number of days between successive cases in a chain of transmission.
-        - projectionTarget: The number of days to project forward using most recent R0 values.
-        - inputCSVInfo: information about the csv file that contains infomration on confirmed and probable deaths.
-        - smoothing: information about moving average periods to apply to smooth estimates
-     
-     The Playground resources folder should contain a csv file with two columns
-     - First column: date of death
-     - Second column: number of confirmed deaths
-     - Third column: number of probable deaths (optional)
-     If a value for probable deaths is not provided, then a value is cacluated using unreportedFatalities.
-     */
     init(serialInterval: Int = 4,
          incubationPeriod: Int = 4,
          hospitalizationParamaters: Paramaters,
@@ -332,7 +314,7 @@ struct Charts: View {
                 .frame(width: 600, height: 250)
                 .background(Color.blue.opacity(0.5))
             
-            Chart(data: model.r0.movingAverage(period: 7).sorted().filter(ignoreEarlyValues), title: "Estimated R0", forceMaxValue: 1.0)
+            Chart(data: model.r0.movingAverage(period: 7).sorted().filter(ignoreEarlyValues), title: "Estimated R0 (7 day moving average)", forceMaxValue: 1.0)
                 .frame(width: 600, height: 250)
                 .background(Color.blue)
             
@@ -351,7 +333,6 @@ struct Charts: View {
             Chart(data: Array(model.projectedHospitalizations.sorted().filter(isAfterToday).prefix(30)), title: "Projected Hospitalizations - next 30 days")
                 .frame(width: 600, height: 250)
                 .background(Color.green)
-    
         }
     }
 }
