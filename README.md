@@ -1,34 +1,48 @@
 # Covid-19-Playground
 
-This playground is a starting point for modeling Covid-19 cases based on available data on confirmed fatalities due to Covid-19.
+This playground is a starting point for modeling Covid-19 cases based on available data on confirmed fatalities and hospitilizations due to Covid-19.
 
 This model is limited in estimating values in the near past, but uses the most recent estimated values for R0 to estimate to the current date and beyond.  
 
 Example:  
 * If we have data on confirmed fatalities up to April 30, and we set the incubation period as 5 days, and fatality period as 5 days, then the model will provide estimates on the number of cases up to April 20.
 * With a serial interval of 5 days, the model will provide estimates for R0 up to April 15.
-* The model will use most recent R0 estimates from April 15 to project values for confimed cases for April 21 and beyond. 
-
+* The model will then use an average of recent R0 estimates leading up to April 15 to project values for confimed cases for April 21 and beyond. 
 
 ![Preview of chart output of covid-19 playground](preview.png)
 
 ## Usage
 
-The model expects a csv file in the playground resources folder with cumulative confirmed and probable deaths for each day.
+The model expects a two csv files in the playground resources folder, one containins with new confirmed and probable deaths for each day, and one containing new hospitilizations each day.
+Data from the nychealth repo can be copy and pasted directly from [probable-confirmed-dod.csv](https://github.com/nychealth/coronavirus-data/blob/master/deaths/probable-confirmed-dod.csv) and  [case-hosp-death.csv](https://github.com/nychealth/coronavirus-data/blob/master/case-hosp-death.csv) 
 
-The model can then be created with a range of paramaters to represent the model. These are all optional, and default values are used if custom values are not provided.
+The model can then be created with a range of paramaters to represent the model. 
 
 ````Swift
+///Create a model with estimates on variables for Covid-19
 let model = Covid19Model(
-    unreportedFatalities: 50,
-    serialInterval: 4,
-    incubationPeriod: 4,
-    fatalityPeriod: 13,
-    fatalityRate: 1.4,
-    projectionTarget: 90,
-    inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yy"),
-    smoothing: (inputSmoothing: 7, inputDrop: 5, r0Smoothing: 2)
-)
+                serialInterval: 5, // mean number of days for infection to a new person
+                incubationPeriod: 4, // mean number of days from infection to onset of symptoms
+                hospitalizationParamaters: (
+                    fileName: "hospitalization-data",
+                    dateFormat: "MM/dd/yyyy",
+                    inputDrop: 7, // ignore the most recent 7 days of values (NYC DOH seem to take up to 7 days before values for a day are stable)
+                    inputMovingAverage: 0,
+                    rate: 3.0, // percentage of cases that result in hospitalization
+                    period: 7 // mean number of days from onset of symptoms to hospitilization
+                ),
+                fatalityParamaters: (
+                    fileName: "fatality-data",
+                    dateFormat: "MM/dd/yyyy",
+                    inputDrop: 7, //(NYC DOH seem to take up to 7 days before values for a day are stable)
+                    inputMovingAverage: 0,
+                    rate: 1.4, // percentage of cases that result in death
+                    period: 13 // mean number of days from onset of symptoms to death
+                ),
+                projectionDays: 51,
+                projectionR0Average: 7
+            )
+
 ````  
 The model exposes a number of properties that returns a dictionary with Date keys and value that contains estimated and projected values for each day.  
 
@@ -39,8 +53,7 @@ model.cumulativeCases: // [Date: Double] estimated cumulative cases as of each d
 model.fatalities: // [Date: Double] estimated new fatalties for each day
 ````  
 
-## Default values 
-The following are used as default values if not provided
+## Useful values 
 
 ### Unreported Fatalities
 As of 4/24 NYC Department of Health are reporting 10,746 confirmed fatalities and 5,012 probable fatalities. Estmate that unreported fatalities is around 50%. This value is only used for days that the input csv does not contain a value for probable deaths.
@@ -81,43 +94,32 @@ Running the model prints progress, errors, and interesting values in the debug o
 
 ````
 // default output displays latest R0 estimates 
-Average R0 from 2 days ending 04/18/20
--  0.73
+Average R0 from 7 days ending 04/28/2020
+-  0.71
 
 // calling model.printSummary() prints estimates for today
-Estimated values for today 05/15/20
- - fatalities: 95
- - new cases: 1821
- - cumulative cases: 1506202
+Estimated values for today 05/18/2020
+- fatalities: 80
+- new hospitalizations: 141
+- new cases: 2191
+- cumulative cases: 1615009
  
 ````
 
 ## Charting
-A very bare-bones `ChartView.swift` is included in the sources folder to display estimated and projected values.
+A very bare-bones `ChartView.swift` is included in the sources folder to display values from the model.
+Some extensions are included to help with smoothing charts by applying a moving average.
 
 ````Swift
+/// display projected new cases for the next 30 days using a 7-day moving average
 struct Charts: View {
     var body: some View {
         VStack {
-            Chart(data: model.estimatedR0Data,
-                  title: "R0", forceMaxValue: 1.0)
-                .frame(width: 600, height: 250)
-                .background(Color.blue)
-
-            Chart(data: model.cumulativeCases.sorted(),
-                  title: "Cumulative Cases")
-                .frame(width: 600, height: 250)
-                .background(Color.yellow)
-            
-            Chart(data: model.fatalities.sorted(),
-                  title: "Fatalities", forceMaxValue: 10)
-                .frame(width: 600, height: 250)
-                .background(Color.gray)
-            
-            Chart(data: model.newCases.sorted(),
-                  title: "New Cases", forceMaxValue: 1000)
-                .frame(width: 600, height: 250)
-                .background(Color.green)
+            Chart(data: Array(model.projectedNewCases.movingAverage(period: 7)
+                .sorted().filter(isAfterToday)
+                    .prefix(30)), title: "Projected New Cases - next 30 days")
+              .frame(width: 600, height: 250)
+              .background(Color.yellow)
         }
     }
 }

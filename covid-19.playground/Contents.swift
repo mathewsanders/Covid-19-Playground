@@ -3,196 +3,218 @@ import PlaygroundSupport
 
 struct Covid19Model {
     
-    typealias InputCsvInfo = (fileName: String, dateFormat: String)
-    typealias SmoothingFactors = (inputSmoothing: Int, inputDrop: Int,  r0Smoothing: Int)
+    typealias Paramaters = (
+        fileName: String,
+        dateFormat: String,
+        inputDrop: Int,
+        inputMovingAverage: Int,
+        rate: Double,
+        period: Int
+    )
 
-    let r0: [Date: Double?]
-    let newCases: [Date: Double]
-    let cumulativeCases: [Date: Double]
-    let fatalities: [Date: Double]
+    let estimatedNewCasesByFatalityRate: [Date: Double]
+    let estimatedNewCasesByHospitalizationsRate: [Date: Double]
+    let estimatedNewCasesByAverage: [Date: Double]
+    
+    let estimatedR0ByFatalityRate: [Date: Double]
+    let estimatedR0ByHospitalizationsRate: [Date: Double]
+    let estimatedR0ByAverage: [Date: Double]
+    
+    let r0: [Date: Double]
+    let projectedNewCases: [Date: Double]
+    let projectedCumulativeCases: [Date: Double]
+    let projectedFatalities: [Date: Double]
+    let projectedHospitalizations: [Date: Double]
+    
+    let fatalityParamaters: Paramaters
+    let hospitalizationParamaters: Paramaters
+
     
     private let dateFormatter: DateFormatter
     
     // number of seconds in a day
     static let daysRatio: TimeInterval = 24*60*60
     
-    /**
-     Creates a model for Covid-19 based on confimred fatalities and other variables.
-     
-     - Parameters:
-        - unreportedFatalities: The percentage of fatalities that are not reported  (for example NY State currently reports only confirmed cases from hospitals and nursing homes. Fatalities that occur at home, or for people with symptoms that were not tested and diagnosed are not counted as confirmed cases). This value is used when the input CSV does not contain a value of probable deaths for a day
-        - fatalityRate: The percentage cases that will lead to fatality.
-        - incubationPeriod: The mean number of days from becoming infected to onset of symptoms.
-        - serialInterval: The number of days between successive cases in a chain of transmission.
-        - projectionTarget: The number of days to project forward using most recent R0 values.
-        - inputCSVInfo: information about the csv file that contains infomration on confirmed and probable deaths.
-        - smoothing: information about moving average periods to apply to smooth estimates
-     
-     The Playground resources folder should contain a csv file with two columns
-     - First column: date of death
-     - Second column: number of confirmed deaths
-     - Third column: number of probable deaths (optional)
-     If a value for probable deaths is not provided, then a value is cacluated using unreportedFatalities.
-     */
-    init(unreportedFatalities: Double = 50.0,
-         serialInterval: Int = 4,
+    static func r0Estimator(dateToday: Date, newCasesToday: Double, dateFuture: Date, newCasesFuture: Double?) -> (Date, Double)? {
+        if let newCasesFuture = newCasesFuture, !newCasesToday.isZero {
+            let r0 = newCasesFuture / newCasesToday
+            return (dateToday, r0)
+        }
+        return nil
+    }
+    
+    static func doubleDoubleMerger(first: Double?, second: Double?) -> Double {
+        switch (first, second) {
+        case (let first?, let second?):
+            return (first + second) / 2
+        case (let first?, _):
+            return first
+        case (_, let second?):
+            return second
+        default:
+            return 0
+        }
+    }
+    
+    init(serialInterval: Int = 4,
          incubationPeriod: Int = 4,
-         fatalityPeriod: Int = 13,
-         fatalityRate: Double = 1.4,
-         projectionTarget: Int = 30,
-         inputCSVInfo: InputCsvInfo = (fileName: "data", dateFormat: "MM/dd/yy"),
-         smoothing: SmoothingFactors = (inputSmoothing: 7, inputDrop: 5, r0Smoothing: 7)) {
+         hospitalizationParamaters: Paramaters,
+         fatalityParamaters: Paramaters,
+         projectionDays: Int = 30,
+         projectionR0Average: Int = 7) {
+                
+        self.hospitalizationParamaters = hospitalizationParamaters
+        self.fatalityParamaters = fatalityParamaters
         
-        assert((0.0...100).contains(unreportedFatalities), "Percentage of unreported fatalities must be between 0 and 100%")
-        assert((1...30).contains(incubationPeriod), "Incubation period must be beween 1 and 30 days")
-        assert((1...30).contains(fatalityPeriod), "Fatality period must be beween 1 and 30 days")
-        assert((0.1...10).contains(fatalityRate), "Fatality rate must be beween 0.1 and 10")
-        assert(projectionTarget >= 0, "Number of days to project model forward must be 0 or above")
-        assert((1...7).contains(smoothing.inputSmoothing), "Input smoothing must be between 1 and 7")
-        assert((1...7).contains(smoothing.r0Smoothing), "R0 smoothing must be between 1 and 7")
-        
-        let fileURL = Bundle.main.url(forResource: inputCSVInfo.fileName, withExtension: "csv")!
-        let content = try! String(contentsOf: fileURL, encoding: String.Encoding.utf8)
-
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX") // set locale to reliable US_POSIX
-        dateFormatter.dateFormat = inputCSVInfo.dateFormat // expected date format in CSV file
+        dateFormatter.dateFormat = fatalityParamaters.dateFormat // expected date format in CSV file
         self.dateFormatter = dateFormatter
         
-        let parsedCSV: [(Date, Double)] = content.components(separatedBy: "\n")
+        let fatalityDataFileURL = Bundle.main.url(forResource: fatalityParamaters.fileName, withExtension: "csv")!
+        let fatalityDataContent = try! String(contentsOf: fatalityDataFileURL, encoding: String.Encoding.utf8)
+        
+        let hospitalizationDataFileURL = Bundle.main.url(forResource: hospitalizationParamaters.fileName, withExtension: "csv")!
+        let hospitalizationDataContent = try! String(contentsOf: hospitalizationDataFileURL, encoding: String.Encoding.utf8)
+
+        // expected format from https://raw.githubusercontent.com/nychealth/coronavirus-data/master/Deaths/probable-confirmed-dod.csv
+        // components[0] -> date_of_death
+        // components[1] -> CONFIRMED_COUNT
+        // components[2] -> PROBABLE_COUNT
+        let parsedFatalityCSV: [(Date, Double)] = fatalityDataContent.components(separatedBy: "\n")
             .compactMap({ line in
                 let components = line.components(separatedBy: ",")
                 if let date = dateFormatter.date(from: components[0]),
-                    let confirmedFatalities = Int(components[1].trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    
-                    let probableFatalities = Double(components[2].trimmingCharacters(in: .whitespacesAndNewlines)) ?? Double(confirmedFatalities) * (Double(unreportedFatalities)/100.0)
+                    let confirmedFatalities = Int(components[1].trimmingCharacters(in: .whitespacesAndNewlines)), let probableFatalities = Double(components[2].trimmingCharacters(in: .whitespacesAndNewlines)) {
                     
                     let totalFatalities = Double(confirmedFatalities) + probableFatalities
                                         
                     return (date, totalFatalities)
                 }
                 return nil
-            }).dropLast(smoothing.inputDrop)
-        
-        let cumulativeFatalities = parsedCSV.reduce(Array<(Date, Double)>(), { cumulativeFatalities, newFatalities in
-            if let previousDay = cumulativeFatalities.last {
-                return cumulativeFatalities + [(newFatalities.0, newFatalities.1 + previousDay.1)]
-            }
-            return [newFatalities]
-        })
-        
-        let fatalityDates = cumulativeFatalities.map({ return $0.0})
-        let fatalityCounts = cumulativeFatalities.map({ return $0.1})
-        
-        let fatalitiesMovingAverages = fatalityCounts.indices.map({ index -> Double in
-            let possibleMinOffset = index-(smoothing.inputSmoothing-1)
-            let minRange = possibleMinOffset < 0 ? 0 : possibleMinOffset
-            let range = (minRange...index)
-            let slice = fatalityCounts[range]
-            let average = Double(slice.reduce(0, +)) / Double(range.count)
-            return average
-        })
-
-        let datesFatalitiesMovingAverage = zip(fatalityDates, fatalitiesMovingAverages)
-        let estimatedFatalities = Dictionary(uniqueKeysWithValues: datesFatalitiesMovingAverage)
-        
-        let estimatedCumulativeCases: [Date: Double] = estimatedFatalities.temporalMap(
-            dateOffset: -(incubationPeriod + fatalityPeriod),
-            transformer: { _ , cumulativeFatalities, infectionDate, _ in
-                let cumulativeCases = cumulativeFatalities * (100.0 / fatalityRate)
-                return(infectionDate, cumulativeCases)
-            }
-        )
-        
-        let estimatedNewCases: [Date: Double] = estimatedCumulativeCases.temporalMap(
-            dateOffset: -1,
-            transformer: { dateToday, cumulativeCasesToday, dateYesterday, cumulativeCasesYesterday in
-                let newCases = cumulativeCasesToday - (cumulativeCasesYesterday ?? 0)
-                return (dateToday, newCases)
-            }
-        )
+            })
+            .dropLast(fatalityParamaters.inputDrop)
                 
-        self.r0 = estimatedNewCases.temporalMap(
-            dateOffset: serialInterval,
-            transformer: { dateToday, newCasesToday, dateFuture, newCasesFuture in
-                if newCasesToday.isZero || newCasesFuture == nil {
-                    return (dateToday, nil)
+        let reportedFatalities: [Date: Double] = Dictionary(uniqueKeysWithValues:  parsedFatalityCSV.map({ ($0.0, $0.1) })).movingAverage(period: fatalityParamaters.inputMovingAverage)
+        
+        // expected format from https://raw.githubusercontent.com/nychealth/coronavirus-data/master/case-hosp-death.csv
+        // components[0] -> DATE_OF_INTEREST
+        // components[1] -> CASE_COUNT
+        // components[2] -> HOSPITALIZED_COUNT
+        // components[3] -> DEATH_COUNT
+        let parsedHospitalizationCSV: [(Date, Double)] = hospitalizationDataContent.components(separatedBy: "\n")
+            .compactMap({ line in
+                let components = line.components(separatedBy: ",")
+                if let date = dateFormatter.date(from: components[0]),
+                    let confirmedHospitalization = Int(components[2].trimmingCharacters(in: .whitespacesAndNewlines)) {
+                                        
+                    return (date, Double(confirmedHospitalization))
                 }
-                let r0 = newCasesFuture! / newCasesToday
-                return (dateToday, r0)
-            }
+                return nil
+            })
+            .dropLast(hospitalizationParamaters.inputDrop)
+        
+        let reportedHospitalizations: [Date: Double] = Dictionary(uniqueKeysWithValues:  parsedHospitalizationCSV.map({ ($0.0, $0.1) }))
+            .movingAverage(period: hospitalizationParamaters.inputMovingAverage)
+        
+        self.estimatedNewCasesByFatalityRate = reportedFatalities.temporalMap(dateOffset: -(incubationPeriod + fatalityParamaters.period), transformer: { _, newFatalities, infectionDate, _ in
+            let newCases = newFatalities / (fatalityParamaters.rate / 100.0)
+            return (infectionDate, newCases)
+        })
+        
+        self.estimatedNewCasesByHospitalizationsRate = reportedHospitalizations.temporalMap(dateOffset: -(hospitalizationParamaters.period), transformer: { _, newHospitalizations, infectionDate, _ in
+            let newCases = newHospitalizations / (hospitalizationParamaters.rate / 100.0)
+            return (infectionDate, newCases)
+        })
+        
+        self.estimatedR0ByFatalityRate = estimatedNewCasesByFatalityRate.temporalMap(
+            dateOffset: serialInterval,
+            transformer: Covid19Model.r0Estimator
         )
+        
+        self.estimatedR0ByHospitalizationsRate = estimatedNewCasesByHospitalizationsRate.temporalMap(
+            dateOffset: serialInterval,
+            transformer: Covid19Model.r0Estimator
+        )
+        
+        self.estimatedNewCasesByAverage = temporalMerger(first: self.estimatedNewCasesByFatalityRate, second: self.estimatedNewCasesByHospitalizationsRate, merger: Covid19Model.doubleDoubleMerger)
+        
+        self.estimatedR0ByAverage = temporalMerger(first: self.estimatedR0ByFatalityRate, second: self.estimatedR0ByHospitalizationsRate, merger: Covid19Model.doubleDoubleMerger)
                 
-        let sortedR0 = r0.filter({ $0.value != nil }).sorted()
-        let recentR0 = sortedR0.suffix(smoothing.r0Smoothing)
+        self.r0 = self.estimatedR0ByAverage
         
-        let averageR0 = recentR0
-            .compactMap({ $0.1 })
-                .reduce(0.0, +)
-                    / Double(smoothing.r0Smoothing)
-        let lastDate = sortedR0.last!.0
+        let recentR0 = self.r0.sorted().suffix(projectionR0Average)
+        let averageR0 = recentR0.map({ $0.value }).reduce(0.0, + ) / Double(projectionR0Average)
         
-        print("Average R0 from \(smoothing.r0Smoothing) days ending \(self.dateFormatter.string(from: lastDate))")
+        guard let lastDate = recentR0.last?.date else {
+            fatalError("no recent r0 dates avaiable")
+        }
+        
+        print("Average R0 from \(projectionR0Average) days ending \(self.dateFormatter.string(from: lastDate))")
         print(" - ", Double(Int(averageR0*100))/100)
         
-        let projectedDates: [Date] = (0..<projectionTarget).map{ offset in
+        let projectedDates: [Date] = (1..<projectionDays).map{ offset in
             let date = lastDate.advanced(by: Covid19Model.daysRatio * TimeInterval(offset))
             return date
         }
         
-        self.newCases = projectedDates.reduce(estimatedNewCases, { cases, newDate in
+        self.projectedNewCases = projectedDates.reduce(estimatedNewCasesByAverage, { cases, newDate in
+
             let previousDate = newDate.advanced(by: Covid19Model.daysRatio * TimeInterval(-serialInterval))
             let previousCases = cases[previousDate] ?? 0
             let newCases = previousCases * averageR0
             return cases.merging([newDate: newCases], uniquingKeysWith: { _, new in new })
         })
         
-        self.cumulativeCases = newCases.sorted().reduce(Dictionary<Date,Double>(), {cumulatedCases, newCases in
+        self.projectedFatalities = self.projectedNewCases.temporalMap(
+            dateOffset: incubationPeriod + fatalityParamaters.period,
+            transformer: { _, newCases, fatalityDate, _ in
+                let estimatedFatalities = newCases * (fatalityParamaters.rate / 100)
+                return (fatalityDate, estimatedFatalities)
+        })
+        
+        self.projectedHospitalizations = self.projectedNewCases.temporalMap(dateOffset: incubationPeriod + hospitalizationParamaters.period, transformer: { _, newCases, hospitalizationDate, _ in
+            let estimatedHospitalizations = newCases * (hospitalizationParamaters.rate / 100)
+            return (hospitalizationDate, estimatedHospitalizations)
+        })
+        
+        self.projectedCumulativeCases = projectedNewCases.sorted().reduce(Dictionary<Date,Double>(), {cumulatedCases, newCases in
+
             let previousDate = newCases.date.advanced(by: -Covid19Model.daysRatio)
             let previousCumulated = cumulatedCases[previousDate] ?? 0
             let newCumulated = previousCumulated + newCases.value
             return cumulatedCases.merging([newCases.date: newCumulated], uniquingKeysWith: { _, new in new })
         })
+    }
+    
+    func printSummaryForToday() {
         
-        self.fatalities = self.newCases.temporalMap(
-            dateOffset: incubationPeriod + fatalityPeriod,
-            transformer: { _, newCases, fatalityDate, _ in
-                let estimatedFatalities = newCases * (fatalityRate/100)
-                return (fatalityDate, estimatedFatalities)
-        })
-    }
-    
-    var estimatedR0Data: [(Date, Double)] {
-        return self.r0.sorted().compactMap({
-            if let value = $0.value {
-                return ($0.date, value)
-            }
-            return nil
-        })
-    }
-    
-    func printSummary() {
-        if let earliestDate = self.newCases.sorted().first?.date {
+        let todayDate = Date()
             
-            let daysBetweenEarliestDateAndToday = (earliestDate
-                .distance(to: Date())/Covid19Model.daysRatio)
-                    .rounded(.down) * Covid19Model.daysRatio
+        print("Estimated values for today \(dateFormatter.string(from: todayDate))")
             
-            let dateToday = earliestDate.addingTimeInterval(daysBetweenEarliestDateAndToday)
-            
-            print("Estimated values for today \(dateFormatter.string(from: dateToday))")
-            
-            if let fatalitiesToday = self.fatalities[dateToday] {
-                print(" - fatalities:", Int(fatalitiesToday))
-            }
-            
-            if let newCasesToday = self.newCases[dateToday] {
-                print(" - new cases:", Int(newCasesToday))
-            }
-            
-            if let cumulativeCasesToday = self.cumulativeCases[dateToday] {
-                print(" - cumulative cases:", Int(cumulativeCasesToday))
-            }
+        if let fatalitiesToday = self.projectedFatalities.sorted().last(where: { item in
+            item.0 < todayDate
+        }) {
+            print(" - fatalities:", Int(fatalitiesToday.value))
+        }
+        
+        if let newHospitalizations = self.projectedHospitalizations.sorted().last(where: { item in
+            item.0 < todayDate
+        }) {
+            print(" - new hospitalizations:", Int(newHospitalizations.value))
+        }
+        
+        if let newCasesToday = self.projectedNewCases.sorted().last(where: { item in
+            item.0 < todayDate
+        }) {
+            print(" - new cases:", Int(newCasesToday.value))
+        }
+        
+        if let cumulativeCasesToday = self.projectedCumulativeCases.sorted().last(where: { item in
+            item.0 < todayDate
+        }) {
+            print(" - cumulative cases:", Int(cumulativeCasesToday.value))
         }
     }
     
@@ -203,13 +225,13 @@ struct Covid19Model {
         let dir = try? FileManager.default.url(for: .documentDirectory,
               in: .userDomainMask, appropriateFor: nil, create: true)
         
-        let merged = self.newCases.temporalMerge(other: self.cumulativeCases, merger: { new, cumulative in
+        let merged = self.projectedNewCases.temporalMerge(other: self.projectedCumulativeCases, merger: { new, cumulative in
             (new: new, cumulative: cumulative)
         })
         .temporalMerge(other: self.r0, merger: { cases, r0 in
             (new: cases?.new, cumulative: cases?.cumulative, r0: r0)
         })
-        .temporalMerge(other: self.fatalities, merger: { cases, fatalities in
+        .temporalMerge(other: self.projectedFatalities, merger: { cases, fatalities in
             (new: cases?.new, cumulative: cases?.cumulative, r0: cases?.r0, fatalities: fatalities)
         })
         let sorted = merged.sorted()
@@ -222,7 +244,7 @@ struct Covid19Model {
                     item.date.description,
                     item.value.new?.description ?? "",
                     item.value.cumulative?.description ?? "",
-                    item.value.r0??.description ?? "",
+                    item.value.r0?.description ?? "",
                     item.value.fatalities?.description ?? ""
                 ]
                 return text + components.joined(separator: ",") + "\n"
@@ -239,39 +261,79 @@ struct Covid19Model {
 
 ///Create a model with estimates on variables for Covid-19
 let model = Covid19Model(
-                unreportedFatalities: 50,
-                serialInterval: 4,
-                incubationPeriod: 4,
-                fatalityPeriod: 13,
-                fatalityRate: 1.4,
-                projectionTarget: 90,
-                inputCSVInfo: (fileName: "data", dateFormat: "MM/dd/yy"),
-                smoothing: (inputSmoothing: 7, inputDrop: 5, r0Smoothing: 2)
+                serialInterval: 5, // mean number of days for infection to a new person
+                incubationPeriod: 4, // mean number of days from infection to onset of symptoms
+                hospitalizationParamaters: (
+                    fileName: "hospitalization-data",
+                    dateFormat: "MM/dd/yyyy",
+                    inputDrop: 7, // ignore the most recent 7 days of values (NYC DOH seem to take up to 7 days before values for a day are stable)
+                    inputMovingAverage: 0,
+                    rate: 3.0, // percentage of cases that result in hospitalization
+                    period: 7 // mean number of days from onset of symptoms to hospitilization
+                ),
+                fatalityParamaters: (
+                    fileName: "fatality-data",
+                    dateFormat: "MM/dd/yyyy",
+                    inputDrop: 7, //(NYC DOH seem to take up to 7 days before values for a day are stable)
+                    inputMovingAverage: 0,
+                    rate: 1.4, // percentage of cases that result in death
+                    period: 13 // mean number of days from onset of symptoms to death
+                ),
+                projectionDays: 51,
+                projectionR0Average: 7
             )
 
-model.printSummary()
-model.saveOutput()
+model.printSummaryForToday()
+//model.saveOutput()
+
+let today = Date()
+let earlyDate = Date(timeIntervalSince1970: 1583024400)
+
+func isAfterToday(date: Date, value: Double) -> Bool {
+    return date >= today
+}
+
+func ignoreEarlyValues(date: Date, value: Double) -> Bool {
+    return date >= earlyDate
+}
 
 struct Charts: View {
     var body: some View {
         VStack {
-            Chart(data: model.estimatedR0Data,
-                  title: "R0", forceMaxValue: 1.0)
+            
+            Chart(data: model.estimatedNewCasesByFatalityRate.sorted(), title: "Estimated New Cases By Fatalities")
+                .frame(width: 600, height: 250)
+                .background(Color.yellow.opacity(0.5))
+            
+            Chart(data: model.estimatedNewCasesByHospitalizationsRate.sorted(), title: "Estimated New Cases By Hospitalizations")
+                .frame(width: 600, height: 250)
+                .background(Color.yellow.opacity(0.5))
+            
+            Chart(data: model.estimatedR0ByFatalityRate.sorted().filter(ignoreEarlyValues), title: "Estimated R0 By Fatality Rate")
+                .frame(width: 600, height: 250)
+                .background(Color.blue.opacity(0.5))
+            
+            Chart(data: model.estimatedR0ByHospitalizationsRate.sorted().filter(ignoreEarlyValues), title: "Estimated R0 By Hospitalization Rate")
+                .frame(width: 600, height: 250)
+                .background(Color.blue.opacity(0.5))
+            
+            Chart(data: model.r0.movingAverage(period: 7).sorted().filter(ignoreEarlyValues), title: "Estimated R0 (7 day moving average)", forceMaxValue: 1.0)
                 .frame(width: 600, height: 250)
                 .background(Color.blue)
-
-            Chart(data: model.cumulativeCases.sorted(),
-                  title: "Cumulative Cases")
-                .frame(width: 600, height: 250)
-                .background(Color.yellow)
             
-            Chart(data: model.fatalities.sorted(),
-                  title: "Fatalities", forceMaxValue: 10)
+           Chart(data: model.projectedCumulativeCases.sorted(), title: "Projected Cumulative Cases")
+               .frame(width: 600, height: 250)
+               .background(Color.yellow)
+            
+            Chart(data: Array(model.projectedNewCases.movingAverage(period: 7).sorted().filter(isAfterToday).prefix(30)), title: "Projected New Cases - next 30 days")
+              .frame(width: 600, height: 250)
+              .background(Color.yellow)
+            
+            Chart(data: Array(model.projectedFatalities.movingAverage(period: 7).sorted().filter(isAfterToday).prefix(30)), title: "Projected Fatalities - next 30 days")
                 .frame(width: 600, height: 250)
                 .background(Color.gray)
             
-            Chart(data: model.newCases.sorted(),
-                  title: "New Cases", forceMaxValue: 1000)
+            Chart(data: Array(model.projectedHospitalizations.sorted().filter(isAfterToday).prefix(30)), title: "Projected Hospitalizations - next 30 days")
                 .frame(width: 600, height: 250)
                 .background(Color.green)
         }
