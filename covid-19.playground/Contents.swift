@@ -281,7 +281,7 @@ let model = Covid19Model(
                 hospitalizationParamaters: (
                     fileName: "hospitalization-data",
                     dateFormat: "MM/dd/yyyy",
-                    inputDrop: 7,
+                    inputDrop: 7, // ignore the most recent 7 days of values (NYC DOH seem to take up to 7 days before values for a day are stable)
                     inputMovingAverage: 0,
                     rate: 3.0, // percentage of cases that result in hospitalization
                     period: 7 // mean number of days from onset of symptoms to hospitilization
@@ -289,12 +289,12 @@ let model = Covid19Model(
                 fatalityParamaters: (
                     fileName: "fatality-data",
                     dateFormat: "MM/dd/yyyy",
-                    inputDrop: 7,
+                    inputDrop: 7, //(NYC DOH seem to take up to 7 days before values for a day are stable)
                     inputMovingAverage: 0,
                     rate: 1.4, // percentage of cases that result in death
                     period: 13 // mean number of days from onset of symptoms to death
                 ),
-                projectionDays: 40,
+                projectionDays: 51,
                 projectionR0Average: 7
             )
 
