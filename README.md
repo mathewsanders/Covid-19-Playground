@@ -9,7 +9,7 @@ Example:
 * With a serial interval of 5 days, the model will provide estimates for R0 up to April 15.
 * The model will then use an average of recent R0 estimates leading up to April 15 to project values for confimed cases for April 21 and beyond. 
 
-![Preview of chart output of covid-19 playground](preview.png)
+![Preview of chart output of covid-19 playground](playground-preview.png)
 
 ## Usage
 
@@ -82,11 +82,6 @@ First-responder testing was performed in the week starting 4/27 when confirmed a
 
 Taking the average between the two, the default value that the model uses is a fatality rate of 1.4%.
 
-### Smoothing 
-By default the following smoothing factors are applied: `(inputSmoothing: 7, inputDrop: 5, r0Smoothing: 2)`
-* Input smoothing applies a moving average smoothing on the input values. There seems to be weekly spikes (weekdays vs weekends) in the number of deaths that are reported. Smoothing to 7 averages out values over the last 7 days.
-* Input drop indicates the number of days of records to drop. NYC department of heath a consistantly updating historic data, and at the moment, the most recent 5 days of values tend to be under reported and so leads to very optimistic R0 estimates.
-* R0 smoothing determines how many days of recent R0 estimates should be used when projecting values forward.
 
 ## Example debug output 
 
