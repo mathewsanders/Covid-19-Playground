@@ -29,7 +29,6 @@ struct Covid19Model {
     let fatalityParamaters: Paramaters
     let hospitalizationParamaters: Paramaters
 
-    
     private let dateFormatter: DateFormatter
     
     // number of seconds in a day
@@ -84,8 +83,11 @@ struct Covid19Model {
         let parsedFatalityCSV: [(Date, Double)] = fatalityDataContent.components(separatedBy: "\n")
             .compactMap({ line in
                 let components = line.components(separatedBy: ",")
-                if let date = dateFormatter.date(from: components[0]),
-                    let confirmedFatalities = Int(components[1].trimmingCharacters(in: .whitespacesAndNewlines)), let probableFatalities = Double(components[2].trimmingCharacters(in: .whitespacesAndNewlines)) {
+                if let date = dateFormatter.date(from: components[0]) {
+                    
+                    let confirmedFatalities = Int(components[1].trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+                        
+                    let probableFatalities = Double(components[2].trimmingCharacters(in: .whitespacesAndNewlines)) ?? Double(confirmedFatalities) * 0.40
                     
                     let totalFatalities = Double(confirmedFatalities) + probableFatalities
                                         
