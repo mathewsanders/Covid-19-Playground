@@ -2,12 +2,12 @@
 
 This playground is a starting point for modeling Covid-19 cases based on available data on confirmed fatalities and hospitilizations due to Covid-19.
 
-This model is limited in estimating values in the near past, but uses the most recent estimated values for R0 to estimate to the current date and beyond.  
+This model is limited in estimating values in the near past, but uses the most recent estimated current Rt values to estimate to the current date and beyond.  
 
 Example:  
 * If we have data on confirmed fatalities up to April 30, and we set the incubation period as 5 days, and fatality period as 5 days, then the model will provide estimates on the number of cases up to April 20.
-* With a serial interval of 5 days, the model will provide estimates for R0 up to April 15.
-* The model will then use an average of recent R0 estimates leading up to April 15 to project values for confimed cases for April 21 and beyond. 
+* With a serial interval of 5 days, the model will provide estimates for Rt up to April 15.
+* The model will then use an average of recent Rt estimates leading up to April 15 to project values for confimed cases for April 21 and beyond. 
 
 ![Preview of chart output of covid-19 playground](playground-preview.png)
 
@@ -40,14 +40,14 @@ let model = Covid19Model(
                     period: 13 // mean number of days from onset of symptoms to death
                 ),
                 projectionDays: 51,
-                projectionR0Average: 7
+                projectionRtAverage: 7
             )
 
 ````  
 The model exposes a number of properties that returns a dictionary with Date keys and value that contains estimated and projected values for each day.  
 
 ````Swift
-model.r0 // [Date: Double?] estimated R0 for each day
+model.rt // [Date: Double?] estimated Rt for each day
 model.newCases: // [Date: Double] estimated new cases for each day
 model.cumulativeCases: // [Date: Double] estimated cumulative cases as of each day
 model.fatalities: // [Date: Double] estimated new fatalties for each day
@@ -88,16 +88,16 @@ Taking the average between the two, the default value that the model uses is a f
 Running the model prints progress, errors, and interesting values in the debug output.
 
 ````
-// default output displays latest R0 estimates 
-Average R0 from 7 days ending 04/28/2020
--  0.71
+// default output displays latest Rt estimates 
+Average Rt from 7 days ending 06/06/2020
+-  0.96
 
 // calling model.printSummary() prints estimates for today
-Estimated values for today 05/18/2020
-- fatalities: 80
-- new hospitalizations: 141
-- new cases: 2191
-- cumulative cases: 1615009
+Estimated values for today 06/29/2020
+ - fatalities: 18
+ - new hospitalizations: 45
+ - new cases: 759
+ - cumulative cases: 1707732
  
 ````
 
